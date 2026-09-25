@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { BarChart3, Download, ExternalLink, GitPullRequest, RefreshCw, Settings2, Users } from "lucide-react";
+import { BarChart3, Download, ExternalLink, RefreshCw, Settings2, Users } from "lucide-react";
 import { Sidebar, SidebarHeader, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton } from "@/components/shared/Sidebar";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -100,20 +100,21 @@ export function App() {
         </SidebarMenuItem>)}
       </SidebarMenu></SidebarContent>
     </Sidebar>
-    <main className="app-main"><div className="mx-auto max-w-7xl space-y-6">
-      {demo && <div className="notice"><span>Sample data</span><Button variant="outline" size="sm" onClick={() => navigate("settings")}>Connect your data</Button></div>}
-      <PageHeader title={page === "overview" ? "ROI Calculator" : page === "settings" && !state.settings.ready ? "Setup" : activeNav.label}
-        icon={<activeNav.icon />}
-        subtitle={page === "settings" ? "Connect a LiteLLM gateway and GitHub repositories." : page === "people" ? "Match GitHub authors to gateway users by email." : "Estimated engineering hours from merged PRs, not actual hours spent."}
-        primaryAction={page !== "settings" ? <div className="flex items-center gap-3">
-          <Button onClick={() => demo ? navigate("settings") : void syncAction()} disabled={busy || state.status.running || (!demo && !state.settings.ready)}>
-            <RefreshCw className={state.status.running ? "animate-spin" : ""} />{state.status.running ? "Syncing…" : "Sync now"}
-          </Button>
-          {report && <span className="text-xs muted">{date(report.start)} – {date(report.end)} · UTC</span>}
-        </div> : undefined}
-        utilities={page === "settings" ? <Button variant="outline" size="sm" onClick={() => location.assign("/?demo=1")}>View sample data</Button> : report ?
-          <Button variant="outline" render={<a href={`/api/export?mode=${mode}`} />} nativeButton={false}><Download />Export CSV</Button> : undefined}
-      />
+    <main className="app-main"><div className="page-content">
+      <div className="page-heading">
+        <PageHeader title={page === "settings" && !state.settings.ready ? "Setup" : activeNav.label}
+          icon={<activeNav.icon />}
+          subtitle={page === "settings" ? "Connect a LiteLLM gateway and GitHub repositories." : report ? `${date(report.start)} – ${date(report.end)}` : "Gateway spend and estimated engineering effort."}
+        />
+        <div className="page-actions">
+          {page === "settings" ? <Button variant="outline" onClick={() => location.assign("/?demo=1")}>View sample data</Button> : demo ?
+            <><Badge variant="secondary">Sample data</Badge><Button variant="outline" onClick={() => navigate("settings")}>Connect your data</Button></> :
+            <Button variant="outline" onClick={() => void syncAction()} disabled={busy || state.status.running || !state.settings.ready}>
+              <RefreshCw className={state.status.running ? "animate-spin" : ""} />{state.status.running ? "Syncing…" : "Sync now"}
+            </Button>}
+          {page === "people" && report && <Button variant="ghost" render={<a href={`/api/export?mode=${mode}`} />} nativeButton={false}><Download />Export CSV</Button>}
+        </div>
+      </div>
       {(error || connectionError || state.status.error) && <div className="notice text-destructive" role="alert">{error || connectionError || state.status.error}</div>}
       {state.status.running && <div className="notice" role="status"><span>{state.status.stage}{state.status.total > 0 && ` · ${state.status.done} / ${state.status.total}`}</span>
         <Button variant="outline" size="sm" onClick={() => void syncAction(true)} disabled={busy}>Cancel sync</Button></div>}
@@ -121,9 +122,9 @@ export function App() {
         <div className="rounded-lg border p-8 text-sm muted">{state.status.running ? "Your report will appear when the sync finishes." : "No report yet. Sync to import spend and estimate merged PRs."}</div> :
         page === "overview" ? <Overview report={report} onSelect={selectPR} onPeople={() => navigate("people")} /> :
         <People report={report} onMatch={(login, email) => { setMatchError(""); setMatching({ login, email }); }} />}
-      {report && page !== "settings" && <p className="text-xs muted">
-        {demo ? "Sample report" : `Last synced ${new Date(report.synced_at).toLocaleString()}`}
-        {!demo && ` · ${state.settings.backfill_days}-day backfill · ${state.settings.update_interval_minutes ? `Updates every ${state.settings.update_interval_minutes} minutes` : "Manual updates"}`}
+      {report && page !== "settings" && !demo && <p className="text-sm muted">
+        Last synced {new Date(report.synced_at).toLocaleString()}
+        {` · ${state.settings.update_interval_minutes ? `Updates every ${state.settings.update_interval_minutes} minutes` : "Manual updates"}`}
       </p>}
     </div></main>
     <Dialog open={!!selectedPR} onOpenChange={open => { if (!open) selectPR(null); }}>
@@ -166,61 +167,67 @@ export function App() {
 
 function Overview({ report, onSelect, onPeople }: { report: Report; onSelect: (pr: Pull) => void; onPeople: () => void }) {
   const [query, setQuery] = useState("");
-  const [limit, setLimit] = useState(25);
+  const [limit, setLimit] = useState(5);
   const m = report.metrics;
   const filtered = report.pulls.filter(pr => `${pr.title} ${pr.repo} ${pr.number} ${pr.login}`.toLowerCase().includes(query.toLowerCase()));
-  const metrics = [
-    ["Estimated engineering hours", `${number(m.output_hours)} hrs`, `${m.cohort_people} matched ${m.cohort_people === 1 ? "person" : "people"} with complete estimates`],
-    ["Gateway spend", money(m.matched_spend), "For the same matched people and period"],
-    ["Spend per estimated hour", money(m.cost_per_hour), "Gateway spend ÷ estimated engineering hours"],
-  ];
   return <>
-    <div className="grid gap-4 sm:grid-cols-3">{metrics.map(([label, value, detail]) => <Card key={label} size="sm" className="rounded-lg shadow-none">
-      <CardContent><h2 className="min-h-5 text-sm muted sm:min-h-8 sm:text-xs xl:min-h-5 xl:text-sm">{label}</h2><p className="my-3 text-3xl font-semibold tracking-tight tabular-nums">{value}</p><p className="text-xs muted">{detail}</p></CardContent>
-    </Card>)}</div>
-    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs muted">
-      <span>{m.matched_prs} of {m.merged_prs} PRs matched. {money(m.excluded_spend)} of {money(m.total_spend)} gateway spend excluded from the comparison.</span>
-      <Button variant="link" size="xs" className="h-auto px-0 text-xs" onClick={onPeople}>Review matches</Button>
-    </div>
-    {report.warnings.map((warning, i) => <p key={i} role="alert" className="text-sm text-warning">{warning}</p>)}
-    <section className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-2"><h2 className="font-semibold text-base">Pull requests</h2><Badge variant="secondary">{m.merged_prs}</Badge></div>
-        <Input type="search" aria-label="Search pull requests" placeholder="Search pull requests" className="w-full sm:w-64" value={query} onChange={e => { setQuery(e.target.value); setLimit(25); }} /></div>
-      <div className="data-table"><Table>
-        <TableHeader><TableRow><TableHead>Pull request</TableHead><TableHead>Author</TableHead><TableHead className="text-right">Estimated engineering hours</TableHead><TableHead>Merged</TableHead></TableRow></TableHeader>
-        <TableBody>{filtered.slice(0, limit).map(pr => <TableRow key={`${pr.repo}#${pr.number}`}>
-          <TableCell className="w-full max-w-md whitespace-normal"><button onClick={() => onSelect(pr)} className="flex w-full items-start gap-2.5 text-left hover:underline focus-visible:outline-2 focus-visible:outline-offset-4 rounded-sm">
-            <GitPullRequest className="mt-0.5 size-4 shrink-0 muted" /><span><span className="font-medium">{pr.title}</span><span className="mt-1 block text-xs muted">{pr.repo} #{pr.number}</span></span>
-          </button></TableCell>
-          <TableCell>{pr.login}</TableCell>
-          <TableCell className="text-right tabular-nums">{pr.estimate.status === "estimated" ? `${number(pr.estimate.hours)} hrs` :
-            <Button variant="link" size="xs" className="text-warning px-0" onClick={() => onSelect(pr)}>{pr.estimate.status === "error" ? "Estimate failed" : "Needs review"}</Button>}</TableCell>
-          <TableCell className="muted text-xs">{date(pr.merged_at)}</TableCell>
-        </TableRow>)}{filtered.length === 0 && <TableRow><TableCell colSpan={4} className="text-center muted">{query ? "No matching pull requests." : "No merged pull requests in this period."}</TableCell></TableRow>}</TableBody>
-      </Table></div>
-      <div className="flex justify-between items-center gap-4 text-xs muted"><span>{m.estimated_prs} estimated{m.pending_prs > 0 && ` · ${m.pending_prs} need attention`}</span>
-        {filtered.length > limit && <Button variant="outline" size="sm" onClick={() => setLimit(n => n + 25)}>Show more ({filtered.length - limit})</Button>}</div>
+    <section aria-label="Spend and estimated engineering effort" className="summary-section">
+      <Card className="summary-card gap-0 rounded-lg py-0 shadow-none">
+        <CardContent className="summary-content px-8">
+          <div className="summary-result">
+            <h2 className="text-base font-medium">Spend per estimated engineering hour</h2>
+            <p className="summary-value">{money(m.cost_per_hour)}</p>
+            <p className="text-sm muted">{m.cost_per_hour == null ? "Not enough matched data to calculate a rate." : `${m.cohort_people} matched ${m.cohort_people === 1 ? "person" : "people"} with complete estimates`}</p>
+          </div>
+          <dl className="summary-inputs">
+            <div><dt>Gateway spend</dt><dd>{money(m.matched_spend)}</dd></div>
+            <div><dt>Estimated engineering hours</dt><dd>{number(m.output_hours)} <span className="text-base font-normal muted">hrs</span></dd></div>
+          </dl>
+        </CardContent>
+        <p className="summary-note">Engineering hours are model estimates, not actual hours spent.</p>
+      </Card>
+      <details className="details calculation-details"><summary>Calculation details</summary>
+        <div className="space-y-3 pt-1">
+          <p>{m.cost_per_hour != null ? `${money(m.matched_spend)} gateway spend ÷ ${number(m.output_hours)} estimated engineering hours = ${money(m.cost_per_hour)} per estimated hour.` : "A rate is available when matched estimated hours are greater than zero."}</p>
+          <p>The comparison includes {m.cohort_people} matched {m.cohort_people === 1 ? "person" : "people"} with complete PR estimates, for the same period in UTC. {m.matched_prs} of {m.merged_prs} PRs have email matches. {money(m.excluded_spend)} of {money(m.total_spend)} total gateway spend is excluded.</p>
+          <p>Gateway spend includes all of each person's usage, across repositories. This does not measure hours saved by AI or financial returns.</p>
+          <Button variant="link" className="h-auto p-0" onClick={onPeople}>Review email matches</Button>
+        </div>
+      </details>
     </section>
-    <details className="details"><summary>How this is calculated</summary>
-      <p>The model estimates how many engineering hours the merged PRs represent. These are not measured working hours, hours saved by AI, or financial returns.</p>
-      <p className="mt-2">Spend per estimated hour includes only people with matched gateway spend and complete PR estimates, for the same period. Gateway spend includes all of each person's usage; it isn't attributed to individual PRs or repositories.</p>
-    </details>
+    {report.warnings.map((warning, i) => <p key={i} role="alert" className="text-sm text-warning">{warning}</p>)}
+    <section className="pull-section">
+      <div className="flex flex-wrap items-center justify-between gap-4"><div><h2 className="font-semibold text-lg">Pull requests</h2><p className="mt-1 text-sm muted">{m.merged_prs} merged · {m.estimated_prs} estimated{m.pending_prs > 0 && ` · ${m.pending_prs} need attention`}</p></div>
+        <Input type="search" aria-label="Search pull requests" placeholder="Search pull requests" className="w-full sm:w-56" value={query} onChange={e => { setQuery(e.target.value); setLimit(e.target.value ? 25 : 5); }} /></div>
+      <div className="data-table pull-table"><Table>
+        <TableHeader><TableRow><TableHead>Pull request</TableHead><TableHead className="text-right">Estimated hours</TableHead></TableRow></TableHeader>
+        <TableBody>{filtered.slice(0, limit).map(pr => <TableRow key={`${pr.repo}#${pr.number}`}>
+          <TableCell className="whitespace-normal"><button onClick={() => onSelect(pr)} className="pr-link text-left hover:underline focus-visible:outline-2 focus-visible:outline-offset-4 rounded-sm">
+            <span className="pr-title">{pr.title}</span><span className="pr-meta">{pr.repo} #{pr.number} · {pr.login}</span>
+          </button></TableCell>
+          <TableCell className="text-right text-base tabular-nums">{pr.estimate.status === "estimated" ? <>{number(pr.estimate.hours)} <span className="text-sm muted">hrs</span></> :
+            <Button variant="link" size="xs" className="text-warning px-0" onClick={() => onSelect(pr)}>{pr.estimate.status === "error" ? "Estimate failed" : "Needs review"}</Button>}</TableCell>
+        </TableRow>)}{filtered.length === 0 && <TableRow><TableCell colSpan={2} className="text-center muted">{query ? "No matching pull requests." : "No merged pull requests in this period."}</TableCell></TableRow>}</TableBody>
+      </Table></div>
+      <div className="flex justify-between items-center gap-4 text-sm muted"><span>Showing {Math.min(limit, filtered.length)} of {filtered.length}</span>
+        {filtered.length > limit ? <Button variant="outline" onClick={() => setLimit(n => n + 25)}>{filtered.length <= limit + 25 ? `View all ${filtered.length} pull requests` : "View more pull requests"}</Button> : limit > 5 && !query && <Button variant="ghost" onClick={() => setLimit(5)}>Show fewer</Button>}</div>
+    </section>
   </>;
 }
 
 function People({ report, onMatch }: { report: Report; onMatch: (login: string, email: string) => void }) {
   return <>
-    <p className="text-sm muted">Engineering hours are model estimates, not actual time spent. Spend includes each person's full gateway usage for this period.</p>
+    <p className="text-sm leading-relaxed muted">Engineering hours are model estimates, not actual time spent. Spend includes each person's full gateway usage for this period.</p>
     <div className="data-table"><Table>
-      <TableHeader><TableRow><TableHead>GitHub user</TableHead><TableHead>Gateway email</TableHead><TableHead className="text-right">Gateway spend</TableHead><TableHead className="text-right">Estimated engineering hours</TableHead><TableHead className="text-right">Spend / estimated hour</TableHead></TableRow></TableHeader>
+      <TableHeader><TableRow><TableHead>Person</TableHead><TableHead className="text-right">Gateway spend</TableHead><TableHead className="text-right">Estimated hours</TableHead><TableHead className="text-right">Spend / est. hour</TableHead></TableRow></TableHeader>
       <TableBody>{report.people.map(person => <TableRow key={person.id}>
-        <TableCell><div className="space-y-1">{person.logins.length ? person.logins.map(login => <div key={login}><button className="font-medium hover:underline focus-visible:outline-2 rounded-sm" onClick={() => onMatch(login, person.email)}>{login}</button></div>) : "No GitHub match"}</div><p className="text-xs muted mt-1">{person.prs} {person.prs === 1 ? "PR" : "PRs"}{person.pending_prs > 0 && ` · ${person.pending_prs} pending`}</p></TableCell>
-        <TableCell>{person.email || (person.logins.length ? <Button variant="link" size="sm" className="h-auto p-0" onClick={() => onMatch(person.logins[0], "")}>Match email</Button> : "Unassigned usage")}
-          <p className="mt-1 text-xs muted">{person.match_methods.join(", ") || "Gateway only"}{person.logins.length > 0 && !person.eligible && " · Excluded from ratio"}</p></TableCell>
+        <TableCell><div className="space-y-1">{person.logins.length ? person.logins.map(login => <div key={login}><button className="font-medium hover:underline focus-visible:outline-2 rounded-sm" onClick={() => onMatch(login, person.email)}>{login}</button></div>) : "No GitHub match"}</div>
+          <div className="mt-1 text-[13px] muted">{person.email || (person.logins.length ? <Button variant="link" size="sm" className="h-auto p-0" onClick={() => onMatch(person.logins[0], "")}>Match email</Button> : "Unassigned usage")}</div>
+          {person.logins.length > 0 && !person.eligible && <p className="mt-1 text-[13px] muted">Excluded from ratio</p>}</TableCell>
         <TableCell className="text-right tabular-nums">{money(person.spend)}</TableCell>
-        <TableCell className="text-right tabular-nums">{person.estimated_prs ? `${number(person.hours)} hrs` : "—"}{person.pending_prs > 0 && <span className="text-xs muted ml-1">(partial)</span>}</TableCell>
+        <TableCell className="text-right tabular-nums">{person.estimated_prs ? `${number(person.hours)} hrs` : "—"}<p className="mt-1 text-[13px] muted">{person.prs} {person.prs === 1 ? "PR" : "PRs"}{person.pending_prs > 0 && ` · ${person.pending_prs} pending`}</p></TableCell>
         <TableCell className="text-right tabular-nums">{money(person.cost_per_hour)}</TableCell>
-      </TableRow>)}{report.people.length === 0 && <TableRow><TableCell colSpan={5} className="text-center muted">No people in this period.</TableCell></TableRow>}</TableBody>
+      </TableRow>)}{report.people.length === 0 && <TableRow><TableCell colSpan={4} className="text-center muted">No people in this period.</TableCell></TableRow>}</TableBody>
     </Table></div>
     <details className="details"><summary>How email matching works</summary><p>Matches use the author's public GitHub email or commit emails associated with their GitHub account. Email matching ignores case. Private, noreply, and ambiguous emails stay unmatched. Click a GitHub username to edit its match. Manual matches take priority.</p><p className="mt-2">People with no spend record or incomplete PR estimates are excluded from the ratio. Missing spend displays as “—”.</p></details>
   </>;
