@@ -1,0 +1,11 @@
+.git
+.venv
+.env*
+.roi-data
+__pycache__
+tests
+*.db*
+.pytest_cache
+.ruff_cache
+frontend
+dist
