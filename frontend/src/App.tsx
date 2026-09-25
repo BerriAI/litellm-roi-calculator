@@ -176,7 +176,7 @@ function Overview({ report, onSelect, onPeople }: { report: Report; onSelect: (p
   ];
   return <>
     <div className="grid gap-4 sm:grid-cols-3">{metrics.map(([label, value, detail]) => <Card key={label} size="sm" className="rounded-lg shadow-none">
-      <CardContent><h2 className="text-sm muted">{label}</h2><p className="my-3 text-3xl font-semibold tracking-tight tabular-nums">{value}</p><p className="text-xs muted">{detail}</p></CardContent>
+      <CardContent><h2 className="min-h-5 text-sm muted sm:min-h-8 sm:text-xs xl:min-h-5 xl:text-sm">{label}</h2><p className="my-3 text-3xl font-semibold tracking-tight tabular-nums">{value}</p><p className="text-xs muted">{detail}</p></CardContent>
     </Card>)}</div>
     <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs muted">
       <span>{m.matched_prs} of {m.merged_prs} PRs matched. {money(m.excluded_spend)} of {money(m.total_spend)} gateway spend excluded from the comparison.</span>
