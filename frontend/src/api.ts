@@ -98,13 +98,29 @@ export interface AppState {
 }
 
 export async function api<T>(path: string, method = "GET", data?: unknown): Promise<T> {
-  const response = await fetch(path, {
-    method,
-    headers: { "Content-Type": "application/json" },
-    ...(data !== undefined && { body: JSON.stringify(data) }),
-  });
-  const result = await response.json();
-  if (!response.ok) throw new Error(typeof result.detail === "string" ? result.detail : "Check the settings and try again.");
+  let response: Response;
+  try {
+    response = await fetch(path, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      ...(data !== undefined && { body: JSON.stringify(data) }),
+    });
+  } catch {
+    throw new Error("Unable to reach the server. Check your connection and try again.");
+  }
+  // Hosting platforms can return HTML during a restart. Never expose the
+  // parser error or replay a mutation that may already have been accepted.
+  const fallback = response.status >= 500
+    ? "The server is temporarily unavailable. Please try again in a moment."
+    : response.status === 429 ? "Too many requests. Please try again shortly."
+    : "The server returned an unexpected response. Please try again.";
+  let result: unknown;
+  try { result = await response.json(); }
+  catch { throw new Error(fallback); }
+  if (!response.ok) {
+    const detail = result && typeof result === "object" && "detail" in result ? result.detail : null;
+    throw new Error(typeof detail === "string" ? detail : fallback);
+  }
   return result as T;
 }
 
