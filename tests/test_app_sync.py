@@ -26,7 +26,7 @@ def test_settings_persist_schedule_without_returning_secrets(tmp_path):
         assert response.json()["update_interval_minutes"] == 360
         assert "never-return-this" not in response.text
         assert "nor-this-token" not in client.get("/api/state").text
-        assert client.get("/api/state").json()["status"]["next_update"] is not None
+        assert client.get("/api/state").json()["status"]["next_update"] is None
         client.put("/api/settings", json={"admin_key": "", "update_interval_minutes": 0})
         assert client.get("/api/state").json()["settings"]["has_admin_key"]
         assert client.get("/api/state").json()["status"]["next_update"] is None
@@ -81,6 +81,9 @@ def test_backfill_is_inclusive_utc_and_schedule_manual(settings, monkeypatch, tm
     assert manager.next_update is None
     settings.update_interval_minutes = 360
     manager.schedule(settings)
+    assert manager.next_update is None  # Saving setup never starts the first backfill.
+    manager.store.save_report({"mode": "live", "synced_at": now.isoformat()})
+    manager.schedule(settings)
     assert manager.next_update == now + timedelta(hours=6)
 
 
@@ -123,6 +126,9 @@ async def test_full_sync_caches_estimates_and_preserves_previous_report_on_sourc
     await manager.task
     first = store.latest()
     assert manager.state["error"] is None and first["pulls"][0]["estimate"]["hours"] == 4
+    assert manager.state["phase"] == "complete"
+    assert manager.state["done"] == manager.state["estimated"] == manager.state["total"] == 1
+    assert manager.state["needs_attention"] == 0
     manager.start(settings)
     await manager.task
     assert calls["model"] == 1
@@ -152,6 +158,8 @@ async def test_cancel_preserves_snapshot_and_disallows_overlapping_sync(settings
     await manager.cancel()
     assert manager.state["running"] is False
     assert manager.state["stage"] == "Sync cancelled"
+    assert manager.state["phase"] == "cancelled"
+    assert manager.next_update is None
     assert manager.store.latest() is None
 
 
@@ -196,3 +204,124 @@ async def test_scheduler_catches_up_on_startup_and_can_switch_to_manual(settings
             response = await client.put("/api/settings", json={"update_interval_minutes": 0})
         assert response.status_code == 200
         assert app.state.manager.next_update is None
+
+
+@pytest.mark.parametrize(("api_url", "repo_url"), [
+    ("https://api.github.com", "https://github.com/company/repo.git"),
+    ("https://github.company.example/api/v3", "https://github.company.example/company/repo/"),
+    ("https://api.company.ghe.com", "https://company.ghe.com/company/repo"),
+])
+def test_repository_urls_follow_configured_github_host(api_url, repo_url):
+    assert Settings(github_api_url=api_url, repos=[repo_url, "company/repo"]).repos == ["company/repo"]
+    with pytest.raises(ValidationError, match="configured GitHub server"):
+        Settings(github_api_url=api_url, repos=["https://unrelated.example/company/repo"])
+
+
+def test_scoped_connection_checks_and_repository_discovery(tmp_path, monkeypatch):
+    from litellm_roi import app as app_module
+    calls = []
+
+    def handler(req):
+        calls.append(req.url.path)
+        if req.url.path == "/user/list":
+            return httpx.Response(200, json={"users": [], "total_pages": 1})
+        if req.url.path == "/v1/models":
+            return httpx.Response(200, json={"data": [{"id": "estimator"}]})
+        if req.url.path == "/api/v3/orgs/company/repos":
+            return httpx.Response(200, json=[{"full_name": "company/internal", "visibility": "internal"}])
+        if req.url.path.endswith("/pulls"):
+            return httpx.Response(200, json=[])
+        if req.url.path == "/api/v3/repos/company/internal":
+            return httpx.Response(200, json={"full_name": "company/internal"})
+        raise AssertionError(req.url)
+
+    transport = httpx.MockTransport(handler)
+    monkeypatch.setattr(app_module, "Gateway", lambda cfg: Gateway(cfg, transport))
+    monkeypatch.setattr(app_module, "GitHub", lambda cfg: GitHub(cfg, transport))
+    with TestClient(create_app(tmp_path), base_url="http://localhost") as client:
+        assert client.get("/api/github/repos").status_code == 400
+        client.put("/api/settings", json={"github_api_url": "https://github.company.example/api/v3", "github_token": "test-only", "repos": ["company/internal"]})
+        assert client.post("/api/connections/test?scope=github", json={}).status_code == 200
+        assert calls == ["/api/v3/repos/company/internal", "/api/v3/repos/company/internal/pulls"]
+        assert client.get("/api/github/repos?org=company").json()["repos"][0]["visibility"] == "internal"
+        assert client.get("/api/github/repos?org=../outside").status_code == 422
+        assert client.get("/api/github/repos?page=0").status_code == 422
+        calls.clear()
+        client.put("/api/settings", json={"gateway_url": "https://gateway.example.com", "admin_key": "test-only", "repos": []})
+        response = client.post("/api/connections/test?scope=gateway", json={})
+        assert response.status_code == 200 and response.json()["models"] == ["estimator"]
+        assert calls == ["/user/list", "/v1/models"]
+        assert client.post("/api/connections/test?scope=github", json={}).status_code == 400
+        assert client.post("/api/connections/test?scope=anything", json={}).status_code == 422
+
+
+async def test_initial_backfill_progress_and_incomplete_estimates(settings, tmp_path, monkeypatch, pr):
+    from litellm_roi.connectors import SourceError
+    manager = SyncManager(Store(tmp_path))
+    settings.update_interval_minutes = 5
+    seen = []
+
+    async def spend(*_):
+        seen.append(manager.state["phase"])
+        return [], {}
+
+    async def pulls(*_):
+        seen.append(manager.state["phase"])
+        return [{"number": n} for n in (1, 2, 3)]
+
+    async def evidence(_self, _repo, item):
+        seen.append(manager.state["phase"])
+        return {**pr, "number": item["number"]}
+
+    async def estimate(_self, item):
+        if item["number"] == 2:
+            raise SourceError("Model unavailable.")
+        if item["number"] == 3:
+            return {"status": "needs_review", "hours": None}
+        return {"status": "estimated", "hours": 4}
+
+    monkeypatch.setattr(Gateway, "spend", spend)
+    monkeypatch.setattr(GitHub, "pulls", pulls)
+    monkeypatch.setattr(GitHub, "evidence", evidence)
+    monkeypatch.setattr(Estimator, "estimate", estimate)
+    manager.start(settings)
+    await manager.task
+    assert seen == ["spend", "repositories", "estimates", "estimates", "estimates"]
+    assert manager.state["phase"] == "complete"
+    assert manager.state["done"] == manager.state["total"] == 3
+    assert manager.state["estimated"] == 1
+    assert manager.state["needs_attention"] == 2
+    assert manager.next_update is not None
+    assert manager.store.latest() is not None
+
+
+async def test_cancel_immediately_after_start_allows_retry(settings, tmp_path):
+    manager = SyncManager(Store(tmp_path))
+    manager.start(settings)
+    await manager.cancel()
+    assert not manager.state["running"]
+    assert manager.state["phase"] == "cancelled"
+    assert manager.next_update is None
+    manager.start(settings)
+    await manager.cancel()
+
+
+async def test_failed_initial_backfill_requires_explicit_retry(settings, tmp_path, monkeypatch):
+    from litellm_roi.connectors import SourceError
+    settings.update_interval_minutes = 5
+    ConfigStore(tmp_path).save(settings.model_dump())
+    app = create_app(tmp_path)
+
+    async def failed_spend(*_):
+        raise SourceError("Gateway unavailable.")
+
+    monkeypatch.setattr(Gateway, "spend", failed_spend)
+    async with app.router.lifespan_context(app):
+        manager = app.state.manager
+        assert manager.next_update is None
+        manager.start(settings)
+        await manager.task
+        assert manager.state["phase"] == "error"
+        assert manager.state["error"] == "Gateway unavailable."
+        assert manager.store.latest() is None
+        assert manager.next_update is None

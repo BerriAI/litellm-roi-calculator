@@ -39,13 +39,25 @@ Open http://localhost:8787. Configuration and reports persist in the `roi-data` 
 
 ## Set up in the dashboard
 
+A fresh workspace opens with **Set up your data**, followed by a guided setup. There is no automatic sample-data fallback. Demo data is available only with `--demo` or `?demo=1`.
+
 1. **Gateway:** your LiteLLM proxy URL and an admin or read-only admin key with access to `/user/list` and `/user/daily/activity`. Choose a dedicated inference key for estimates when using a read-only admin key.
-2. **Repositories:** one or more `owner/repo` names. For private repositories, use a fine-grained GitHub token with read access to **Pull requests, Contents, and Metadata** for those repos. Public repos may work without a token but have lower rate limits.
+2. **Repositories:** add a GitHub token, optionally enter your organization, and click **Browse repos**. Select public, private, or internal repositories, or enter `owner/repo` names or repository URLs. Setup checks repository and pull-request access before continuing.
 3. **Estimator:** select or enter a model deployment on your gateway. The model must accept `temperature: 0` and JSON-object output. Edit the default prompt if desired.
 4. **Backfill and updates:** choose a rolling history window (1–3,650 days, default 30) and an update interval (default 60 minutes). Set the interval to **0 for manual only**, or at least 5 minutes for automatic updates. Both controls are available during setup and in Settings afterward.
-5. Save, test connections, and click **Sync now**.
+5. Click **Start backfill**. Progress shows gateway import, repository import, and the number of PRs processed and estimated. The dashboard opens when the first report is ready. You can reload the page during backfill, cancel it, or retry after an error.
 
-Automatic updates run while the local process is running. On restart, the app checks the last successful report and catches up if its next update is overdue. A change to the history window takes effect on the next sync. Stop a sync with Cancel; the previous complete source snapshot is retained.
+Automatic updates begin only after the first successful backfill and run while the local process is running. Saving setup does not start inference. Failed or cancelled initial backfills require an explicit retry; cached estimates are reused. On restart, the app checks the last successful report and catches up if its next update is overdue. A change to the history window takes effect on the next sync. Stop a sync with Cancel; the previous complete source snapshot is retained.
+
+### Company GitHub connections
+
+- **Private and internal repos:** use a company-approved fine-grained personal access token with read access to **Pull requests, Contents, and Metadata** on the repositories you select. Set the organization as the token’s resource owner. If your company uses classic tokens, private repo access requires the `repo` scope. The app only reads GitHub data.
+- **Organization access:** approve the token if your organization requires it. For classic tokens in SAML SSO organizations, authorize the token for that organization. Organization policies and your account’s repository access still apply; this connection does not bypass them.
+- **Repository picker:** leave Organization blank to list repositories accessible to the token, or enter an organization to browse its repositories. Use the filter and Load more for larger lists. Select up to 50 repositories per workspace. The same picker is available in Settings.
+- **GitHub Enterprise Server:** expand **GitHub Enterprise** and enter your API URL, such as `https://github.company.com/api/v3`. Enterprise Cloud with data residency can use `https://api.company.ghe.com`. Use a token issued for that server. Full repository URLs must match the configured server; `owner/repo` works for either.
+- **Company networks:** run the app on a machine with access to the gateway and GitHub server, including your VPN if needed. For a company certificate authority, configure HTTPX’s `SSL_CERT_FILE` or `SSL_CERT_DIR`; TLS verification stays enabled.
+
+Public repositories can be entered manually without a token, subject to GitHub’s lower anonymous rate limits. This version uses tokens, not a GitHub App installation or OAuth sign-in. GitHub email visibility can be restricted in company accounts; use **People → Match email** when an automatic match is unavailable.
 
 ### Optional environment configuration
 

@@ -5,7 +5,7 @@ import tempfile
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
 DEFAULT_PROMPT = (
     "Estimate how many hours it would take an engineer to complete the work in this pull request. "
@@ -55,10 +55,18 @@ class Settings(BaseModel):
 
     @field_validator("repos")
     @classmethod
-    def valid_repos(cls, values: list[str]) -> list[str]:
+    def valid_repos(cls, values: list[str], info: ValidationInfo) -> list[str]:
         repos = []
         for value in values:
-            value = value.strip().removeprefix("https://github.com/").rstrip("/").removesuffix(".git")
+            value = value.strip()
+            if "://" in value:
+                parsed = urlsplit(value)
+                api_host = urlsplit(info.data.get("github_api_url", "https://api.github.com")).hostname or ""
+                web_host = "github.com" if api_host == "api.github.com" else api_host.removeprefix("api.")
+                if parsed.scheme not in ("http", "https") or parsed.hostname != web_host or parsed.username or parsed.password or parsed.query or parsed.fragment:
+                    raise ValueError("Repository URLs must belong to your configured GitHub server.")
+                value = parsed.path.strip("/")
+            value = value.rstrip("/").removesuffix(".git")
             if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", value):
                 raise ValueError("Repositories must be owner/repo or a GitHub repository URL.")
             if value.casefold() not in {r.casefold() for r in repos}:

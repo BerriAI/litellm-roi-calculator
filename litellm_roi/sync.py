@@ -20,11 +20,12 @@ class SyncManager:
     def __init__(self, store: Store):
         self.store = store
         self.task: asyncio.Task | None = None
-        self.state = {"running": False, "stage": "idle", "done": 0, "total": 0, "error": None}
+        self.state = {"running": False, "phase": "idle", "stage": "idle", "done": 0, "total": 0,
+            "estimated": 0, "needs_attention": 0, "error": None}
         self.next_update: datetime | None = None
 
     def schedule(self, settings: Settings):
-        self.next_update = utcnow() + timedelta(minutes=settings.update_interval_minutes) if settings.update_interval_minutes and settings.public()["ready"] else None
+        self.next_update = utcnow() + timedelta(minutes=settings.update_interval_minutes) if settings.update_interval_minutes and settings.public()["ready"] and self.store.latest() else None
 
     def status(self):
         return {**self.state, "next_update": self.next_update.isoformat() if self.next_update else None}
@@ -34,7 +35,8 @@ class SyncManager:
             raise SourceError("A sync is already running.")
         if not settings.public()["ready"]:
             raise SourceError("Connect your gateway, choose repositories, and select an estimator model first.")
-        self.state = {"running": True, "stage": "Reading gateway spend", "done": 0, "total": 0, "error": None}
+        self.state = {"running": True, "phase": "spend", "stage": "Reading gateway spend", "done": 0, "total": 0,
+            "estimated": 0, "needs_attention": 0, "error": None}
         self.task = asyncio.create_task(self.run(settings))
 
     async def cancel(self):
@@ -44,6 +46,8 @@ class SyncManager:
                 await self.task
             except asyncio.CancelledError:
                 pass
+            # Cancellation may arrive before run() has entered its try/finally.
+            self.state.update(running=False, phase="cancelled", stage="Sync cancelled")
 
     async def run(self, settings: Settings):
         gateway, github, estimator = Gateway(settings), GitHub(settings), Estimator(settings, self.store)
@@ -51,10 +55,11 @@ class SyncManager:
             start, end = window(settings)
             spend, _ = await gateway.spend(start, end)
             queue = []
+            self.state["phase"] = "repositories"
             for repo in settings.repos:
                 self.state["stage"] = f"Reading {repo}"
                 queue.extend((repo, pr) for pr in await github.pulls(repo, start, end))
-            self.state.update(stage="Estimating pull requests", total=len(queue))
+            self.state.update(phase="estimates", stage="Estimating pull requests", total=len(queue))
             pulls = []
             for repo, pr in queue:
                 self.state["stage"] = f"Estimating {repo} #{pr['number']}"
@@ -67,18 +72,19 @@ class SyncManager:
                 evidence.pop("body")
                 pulls.append({**evidence, "estimate": estimate})
                 self.state["done"] += 1
+                self.state["estimated" if estimate["status"] == "estimated" else "needs_attention"] += 1
             self.store.save_report({"mode": "live", "start": start.isoformat(), "end": end.isoformat(),
                 "synced_at": utcnow().isoformat(), "repos": settings.repos,
                 "estimator_model": settings.estimator_model, "estimator_prompt": settings.estimator_prompt,
                 "spend": spend, "pulls": pulls, "warnings": []})
-            self.state["stage"] = "Up to date"
+            self.state.update(phase="complete", stage="Up to date")
         except asyncio.CancelledError:
-            self.state["stage"] = "Sync cancelled"
+            self.state.update(phase="cancelled", stage="Sync cancelled")
             raise
         except SourceError as exc:
-            self.state.update(stage="Sync failed", error=str(exc))
+            self.state.update(phase="error", stage="Sync failed", error=str(exc))
         except Exception:
-            self.state.update(stage="Sync failed", error="Unexpected source response. Your previous report is intact. Check service compatibility and try again.")
+            self.state.update(phase="error", stage="Sync failed", error="Unexpected source response. No partial report was saved. Check service compatibility and try again.")
         finally:
             self.state["running"] = False
             self.schedule(settings)

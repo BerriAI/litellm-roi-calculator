@@ -82,3 +82,44 @@
   .app-main { margin-left: 0; padding: 28px 24px; }
   .notice { align-items: flex-start; flex-wrap: wrap; }
 }
+
+@layer components {
+  .onboarding { min-height: 100dvh; }
+  .onboarding-brand { padding: 24px 32px; border-bottom: 1px solid var(--border); }
+  .onboarding-content { max-width: 624px; margin: 56px auto 80px; padding: 0 24px; }
+  .onboarding-content h1 { font-size: 28px; font-weight: 600; letter-spacing: -.035em; line-height: 1.3; outline: none; }
+  .onboarding-description { margin: 12px 0 30px; font-size: 15px; line-height: 1.7; color: var(--muted-foreground); }
+  .onboarding-welcome { margin-top: 88px; }
+  .welcome-steps { display: grid; gap: 22px; margin: 36px 0; font-size: 15px; }
+  .welcome-steps li { display: flex; align-items: center; gap: 14px; }
+  .welcome-steps li > span { display: grid; place-items: center; width: 28px; height: 28px; border: 1px solid var(--border); border-radius: 50%; font-size: 12px; color: var(--muted-foreground); }
+  .setup-steps { display: flex; justify-content: space-between; gap: 12px; padding-bottom: 28px; margin-bottom: 32px; border-bottom: 1px solid var(--border); font-size: 13px; color: var(--muted-foreground); }
+  .setup-steps li { display: flex; align-items: center; gap: 8px; }
+  .setup-steps li > span { width: 23px; height: 23px; flex-shrink: 0; display: grid; place-items: center; border: 1px solid var(--border); border-radius: 50%; font-size: 11px; }
+  .setup-steps li[aria-current] { color: var(--foreground); font-weight: 500; }
+  .setup-steps li[aria-current] > span { background: var(--primary); border-color: var(--primary); color: var(--primary-foreground); }
+  .onboarding-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
+  .repo-picker { display: grid; gap: 10px; }
+  .repo-list { max-height: 248px; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; }
+  .repo-choice { display: flex; gap: 10px; align-items: center; padding: 12px; font-size: 13px; cursor: pointer; }
+  .repo-choice + .repo-choice { border-top: 1px solid var(--border); }
+  .repo-choice:has(:checked) { background: var(--muted); }
+  .repo-choice input { width: 16px; height: 16px; flex-shrink: 0; accent-color: var(--primary); }
+  .repo-choice input:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
+  .backfill-stages { display: grid; gap: 24px; margin: 32px 0; }
+  .backfill-stages li { display: flex; align-items: center; gap: 14px; color: var(--muted-foreground); font-size: 15px; }
+  .backfill-stages svg { width: 18px; height: 18px; }
+  .backfill-stages .active { color: var(--foreground); font-weight: 500; }
+  .backfill-detail { display: grid; gap: 12px; padding: 20px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); font-size: 13px; overflow-wrap: anywhere; }
+  .backfill-detail progress { display: block; width: 100%; height: 6px; border: 0; border-radius: 6px; overflow: hidden; background: var(--muted); accent-color: var(--primary); }
+  .backfill-detail progress::-webkit-progress-bar { background: var(--muted); }
+  .backfill-detail progress::-webkit-progress-value { background: var(--primary); }
+}
+@media (max-width: 480px) {
+  .onboarding-brand { padding: 20px 24px; }
+  .onboarding-content { margin-top: 36px; }
+  .onboarding-content h1 { font-size: 25px; }
+  .setup-steps { font-size: 11px; gap: 8px; }
+  .setup-steps li { flex-direction: column; align-items: flex-start; gap: 8px; }
+}
+@media (prefers-reduced-motion: reduce) { .animate-spin { animation: none; } }

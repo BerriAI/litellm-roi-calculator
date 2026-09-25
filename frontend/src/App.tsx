@@ -9,6 +9,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { SettingsForm } from "./SettingsForm";
+import { Onboarding } from "./Onboarding";
 import { api, money, number, date, safeURL, errorMessage, type AppState, type Pull, type Report } from "./api";
 
 type Page = "overview" | "people" | "settings";
@@ -34,22 +35,21 @@ export function App() {
   useEffect(() => {
     let active = true;
     let timer: ReturnType<typeof setTimeout>;
-    async function poll(first = false) {
+    async function poll() {
       try {
         const result = await api<AppState>("/api/state?mode=" + mode);
         if (!active) return;
         setState(result);
         setConnectionError("");
-        if (first && !result.settings.ready && !result.report) setPage("settings");
       } catch (error) { if (active) setConnectionError(errorMessage(error)); }
       if (active) timer = setTimeout(() => void poll(), 3000);
     }
-    void poll(true);
+    void poll();
     return () => { active = false; clearTimeout(timer); };
   }, []);
 
   function navigate(next: Page) {
-    if (demo && next === "settings") { location.assign("/?page=settings"); return; }
+    if (demo && next === "settings") { location.assign("/"); return; }
     setPage(next); setError(""); window.scrollTo(0, 0);
   }
   async function startSync() {
@@ -82,6 +82,8 @@ export function App() {
     {connectionError || "Loading…"}{connectionError && <Button className="ml-3" variant="outline" onClick={() => location.reload()}>Retry</Button>}
   </main>;
 
+  if (!demo && !state.report) return <Onboarding state={state} refresh={refresh} connectionError={connectionError} />;
+
   const report = state.report;
   const activeNav = navigation.find(n => n.id === page)!;
   return <div>
@@ -107,8 +109,8 @@ export function App() {
           subtitle={page === "settings" ? "Connect a LiteLLM gateway and GitHub repositories." : report ? `${date(report.start)} – ${date(report.end)}` : "Gateway spend and estimated engineering effort."}
         />
         <div className="page-actions">
-          {page === "settings" ? <Button variant="outline" onClick={() => location.assign("/?demo=1")}>View sample data</Button> : demo ?
-            <><Badge variant="secondary">Sample data</Badge><Button variant="outline" onClick={() => navigate("settings")}>Connect your data</Button></> :
+          {page === "settings" ? null : demo ?
+            <><Badge variant="secondary">Sample data</Badge><Button variant="outline" onClick={() => navigate("settings")}>Set up your data</Button></> :
             <Button variant="outline" onClick={() => void syncAction()} disabled={busy || state.status.running || !state.settings.ready}>
               <RefreshCw className={state.status.running ? "animate-spin" : ""} />{state.status.running ? "Syncing…" : "Sync now"}
             </Button>}
@@ -149,7 +151,7 @@ export function App() {
     <Dialog open={!!matching} onOpenChange={open => { if (!open) setMatching(null); }}>
       <DialogContent>
         <DialogHeader><DialogTitle>Match email</DialogTitle><DialogDescription>Link {matching?.login} to their gateway email.</DialogDescription></DialogHeader>
-        {demo ? <><p>Connect your data to edit email matches.</p><Button onClick={() => navigate("settings")}>Connect your data</Button></> :
+        {demo ? <><p>Set up your data to edit email matches.</p><Button onClick={() => navigate("settings")}>Set up your data</Button></> :
           <form onSubmit={e => { e.preventDefault(); void saveMatch(); }} className="space-y-5">
             <label className="field"><span>Gateway email</span><Input type="email" required value={matching?.email || ""}
               onChange={e => setMatching(current => current && { ...current, email: e.target.value })} placeholder="name@company.com" list="gateway-emails" /></label>

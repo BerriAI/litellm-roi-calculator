@@ -28,6 +28,11 @@ async def request(client: httpx.AsyncClient, method: str, path: str, **kwargs) -
                 429: "Rate limit reached. Wait before syncing again.",
                 400: "The service rejected the request. Check model support for temperature 0 and JSON output.",
             }
+            if "X-GitHub-Api-Version" in client.headers:
+                labels.update({
+                    403: "GitHub denied access or reached a rate limit. Check token permissions, organization approval, and SSO authorization.",
+                    404: "GitHub repository or organization not found. Check its name, token access, and Enterprise API URL. Private repositories require an authorized token.",
+                })
             raise SourceError(labels.get(response.status_code, "The service returned an error.") + f" (HTTP {response.status_code})")
         return response
     raise SourceError("The service is temporarily unavailable.")
@@ -127,6 +132,18 @@ class GitHub:
 
     async def close(self):
         await self.client.aclose()
+
+    async def repositories(self, organization: str = "", page: int = 1) -> dict:
+        path = f"orgs/{organization}/repos" if organization else "user/repos"
+        params = {"per_page": 100, "page": page, "sort": "updated", "direction": "desc"}
+        if not organization:
+            params["affiliation"] = "owner,collaborator,organization_member"
+        response = await request(self.client, "GET", path, params=params)
+        data = payload(response)
+        if not isinstance(data, list) or any(not isinstance(repo, dict) or not isinstance(repo.get("full_name"), str) for repo in data):
+            raise SourceError("GitHub returned an unexpected repository list.")
+        return {"repos": [{"name": repo["full_name"], "visibility": repo.get("visibility") or ("private" if repo.get("private") else "public"),
+            "archived": bool(repo.get("archived"))} for repo in data], "has_more": 'rel="next"' in response.headers.get("link", "")}
 
     async def pages(self, path: str, params: dict | None = None, limit=10000):
         for page in range(1, limit + 1):

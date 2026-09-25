@@ -97,3 +97,43 @@ async def test_gateway_missing_entity_breakdown_is_unassigned(settings):
     await gateway.close()
     assert records[0]["email"] == ""
     assert records[0]["spend"] == 123
+
+
+async def test_company_repositories_use_configured_host_token_and_pagination(settings):
+    settings.github_api_url = "https://github.company.example/api/v3"
+    calls = []
+
+    def handler(req):
+        calls.append(req)
+        assert req.url.host == "github.company.example"
+        assert req.headers["authorization"] == "Bearer test-github-secret"
+        assert req.url.params["per_page"] == "100"
+        if req.url.path == "/api/v3/orgs/company/repos":
+            assert req.url.params["page"] == "2"
+            return httpx.Response(200, headers={"link": '<https://untrusted.example/next>; rel="next"'}, json=[
+                {"full_name": "company/internal", "visibility": "internal"},
+                {"full_name": "company/private", "private": True, "archived": True},
+            ])
+        assert req.url.path == "/api/v3/user/repos"
+        assert req.url.params["affiliation"] == "owner,collaborator,organization_member"
+        return httpx.Response(200, json=[{"full_name": "company/public", "private": False}])
+
+    github = GitHub(settings, httpx.MockTransport(handler))
+    organization = await github.repositories("company", 2)
+    personal = await github.repositories()
+    await github.close()
+    assert len(calls) == 2  # Never follows an arbitrary pagination URL with the token.
+    assert organization == {"repos": [
+        {"name": "company/internal", "visibility": "internal", "archived": False},
+        {"name": "company/private", "visibility": "private", "archived": True},
+    ], "has_more": True}
+    assert personal["has_more"] is False
+    assert personal["repos"][0]["visibility"] == "public"
+
+
+async def test_github_access_errors_explain_company_authorization_without_leaking(settings):
+    github = GitHub(settings, httpx.MockTransport(lambda _: httpx.Response(403, text="private-token")))
+    with pytest.raises(SourceError, match="SSO authorization") as exc:
+        await github.repositories("company")
+    await github.close()
+    assert "private-token" not in str(exc.value)

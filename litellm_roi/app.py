@@ -4,8 +4,9 @@ import io
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Literal
 
-from fastapi import Body, FastAPI, HTTPException, Request
+from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
@@ -94,19 +95,30 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
         return saved.public()
 
     @app.post("/api/connections/test")
-    async def test_connections():
+    async def test_connections(scope: Literal["all", "gateway", "github"] = "all"):
         settings = config.load()
-        if not settings.gateway_url or not settings.admin_key:
-            raise SourceError("Save a gateway URL and admin key first.")
-        gateway, github = Gateway(settings), GitHub(settings)
-        try:
-            await gateway.users()
-            for repo in settings.repos:
-                await request(github.client, "GET", f"repos/{repo}")
-            models = await gateway.models()
-            return {"ok": True, "models": models, "repos": len(settings.repos)}
-        finally:
-            await asyncio.gather(gateway.close(), github.close())
+        models, repo_count = [], 0
+        if scope in ("all", "gateway"):
+            if not settings.gateway_url or not settings.admin_key:
+                raise SourceError("Save a gateway URL and admin key first.")
+            gateway = Gateway(settings)
+            try:
+                await gateway.users()
+                models = await gateway.models()
+            finally:
+                await gateway.close()
+        if scope in ("all", "github"):
+            if not settings.repos:
+                raise SourceError("Add at least one repository.")
+            github = GitHub(settings)
+            try:
+                for repo in settings.repos:
+                    await request(github.client, "GET", f"repos/{repo}")
+                    await request(github.client, "GET", f"repos/{repo}/pulls", params={"per_page": 1, "state": "closed"})
+                repo_count = len(settings.repos)
+            finally:
+                await github.close()
+        return {"ok": True, "models": models, "repos": repo_count}
 
     @app.get("/api/models")
     async def models():
@@ -118,6 +130,17 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
             return {"models": await gateway.models()}
         finally:
             await gateway.close()
+
+    @app.get("/api/github/repos")
+    async def repositories(org: str = Query(default="", pattern=r"^[A-Za-z0-9-]*$", max_length=100), page: int = Query(default=1, ge=1, le=10000)):
+        settings = config.load()
+        if not org and not settings.github_token:
+            raise SourceError("Add a GitHub token to browse your repositories, or enter an organization to browse public repositories.")
+        github = GitHub(settings)
+        try:
+            return await github.repositories(org, page)
+        finally:
+            await github.close()
 
     @app.post("/api/sync")
     async def sync():

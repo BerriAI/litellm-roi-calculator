@@ -1,28 +1,10 @@
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { api, errorMessage, type AppState, type Settings } from "./api";
-
-type FormValues = {
-  gateway_url: string; admin_key: string; estimator_key: string; github_token: string;
-  github_api_url: string; repos: string; estimator_model: string; estimator_prompt: string;
-  backfill_days: string; update_interval_minutes: string;
-};
-
-const formValues = (s: Settings): FormValues => ({
-  gateway_url: s.gateway_url, admin_key: "", estimator_key: "", github_token: "",
-  github_api_url: s.github_api_url, repos: s.repos.join("\n"), estimator_model: s.estimator_model,
-  estimator_prompt: s.estimator_prompt, backfill_days: String(s.backfill_days),
-  update_interval_minutes: String(s.update_interval_minutes),
-});
-
-function Field({ label, help, children, locked = false }: {
-  label: string; help?: string; children: ReactNode; locked?: boolean;
-}) {
-  return <label className="field"><span>{label} {locked && <span className="muted text-xs font-normal">(set by environment)</span>}</span>
-    {children}{help && <span className="field-help">{help}</span>}</label>;
-}
+import { GitHubConnection, githubConnectionFields } from "./GitHubConnection";
+import { Field, formValues, settingsUpdate, type FormValues } from "./configuration";
 
 export function SettingsForm({ state, refresh, onSync }: {
   state: AppState; refresh: () => Promise<void>; onSync: () => Promise<void>;
@@ -35,15 +17,11 @@ export function SettingsForm({ state, refresh, onSync }: {
   const locked = (name: keyof FormValues) => state.environment_fields.includes(name);
   const update = (name: keyof FormValues, value: string) => { setValues(v => ({ ...v, [name]: value })); setMessage(null); };
 
-  async function save() {
-    const data = Object.fromEntries(Object.entries(values).filter(([key]) => !state.environment_fields.includes(key)));
-    const result = await api<Settings>("/api/settings", "PUT", {
-      ...data,
-      ...(data.repos !== undefined && { repos: data.repos.split(/[\n,]/).map(r => r.trim()).filter(Boolean) }),
-      backfill_days: Number(values.backfill_days), update_interval_minutes: Number(values.update_interval_minutes),
-    });
+  async function save(fields = Object.keys(values)) {
+    const result = await api<Settings>("/api/settings", "PUT", settingsUpdate(values, state.environment_fields, fields));
     setSaved(result);
-    setValues(formValues(result));
+    const normalized = formValues(result);
+    setValues(v => ({ ...v, ...Object.fromEntries(fields.map(field => [field, normalized[field as keyof FormValues]])) }));
     await refresh();
     return result;
   }
@@ -88,15 +66,8 @@ export function SettingsForm({ state, refresh, onSync }: {
       </section>
       <section className="form-section">
         <h2>GitHub</h2>
-        <div className="form-fields">
-          <Field label="Repositories" locked={locked("repos")} help="One owner/repository or GitHub repository URL per line.">
-            <Textarea name="repos" rows={3} className="min-h-24" value={values.repos} disabled={locked("repos")}
-              onChange={e => update("repos", e.target.value)} placeholder={"BerriAI/litellm\nyour-org/your-repo"} />
-          </Field>
-          <Field label="GitHub token" locked={locked("github_token")} help="Required for private repos. Give read access to Pull requests, Contents, and Metadata.">
-            {input("github_token", "password", saved.has_github_token ? "Saved. Leave blank to keep." : "github_pat_…")}
-          </Field>
-        </div>
+        <GitHubConnection values={values} saved={saved} locked={locked} update={update}
+          saveConnection={() => save(githubConnectionFields)} onBusy={value => setBusy(value ? "repos" : "")} />
       </section>
       <section className="form-section">
         <h2>Estimator</h2>
@@ -128,7 +99,7 @@ export function SettingsForm({ state, refresh, onSync }: {
               onChange={e => update("update_interval_minutes", e.target.value)} />
           </Field>
         </div>
-        <p className="field-help mt-4">Automatic updates run while this app is open.</p>
+        <p className="field-help mt-4">Automatic updates run while the local app is running.</p>
       </section>
       <details className="details form-section">
         <summary>Advanced settings</summary>
@@ -136,7 +107,6 @@ export function SettingsForm({ state, refresh, onSync }: {
           <Field label="Estimator API key" locked={locked("estimator_key")} help="Optional dedicated inference key. Otherwise uses the admin key. A separate service user keeps estimation costs out of people's spend.">
             {input("estimator_key", "password", saved.has_estimator_key ? "Saved. Leave blank to keep." : "sk-…")}
           </Field>
-          <Field label="GitHub API URL" locked={locked("github_api_url")} help="Change this for GitHub Enterprise.">{input("github_api_url", "url")}</Field>
         </div>
       </details>
       <div className="flex flex-wrap gap-2 py-5">

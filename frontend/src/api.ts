@@ -79,9 +79,12 @@ export interface AppState {
   report: Report | null;
   status: {
     running: boolean;
+    phase: "idle" | "spend" | "repositories" | "estimates" | "complete" | "cancelled" | "error";
     stage: string;
     done: number;
     total: number;
+    estimated: number;
+    needs_attention: number;
     next_update: string | null;
     error: string | null;
   };
