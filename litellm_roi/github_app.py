@@ -258,8 +258,12 @@ class GitHubApp:
                     raise SourceError("This GitHub installation is not available to your account.")
                 data = self.load()
                 installations = {item["id"]: item for item in data.get("installations", [])}
+                # Newly approved accounts should open in the picker immediately,
+                # rather than leave users looking at their personal forks.
+                newly_connected = [item["id"] for item in found if item["id"] not in installations]
                 installations.update({item["id"]: item for item in found})
-                data["installations"] = list(installations.values())
+                preferred = installation_id if installation_id is not None else newly_connected[0] if newly_connected else None
+                data["installations"] = sorted(installations.values(), key=lambda item: item["id"] != preferred)
                 save_private(self.path, data)
                 self.tokens.clear()
                 self.repo_installations.clear()

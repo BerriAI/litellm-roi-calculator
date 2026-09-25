@@ -133,9 +133,11 @@ def test_forged_or_suspended_installation_is_never_connected(tmp_path, app_crede
         assert ConfigStore(tmp_path).load().github_connection == "token"
 
 
-def test_reconnect_discovers_approved_accounts_without_reinstallation(tmp_path, app_credentials):
+@pytest.mark.parametrize("already_connected", [False, True])
+def test_reconnect_discovers_approved_accounts_without_reinstallation(tmp_path, app_credentials, already_connected):
     app = create_app(tmp_path)
-    save_private(app.state.github_app.path, app_credentials)
+    personal = {"id": 6, "account": "personal"}
+    save_private(app.state.github_app.path, {**app_credentials, "installations": [personal] if already_connected else []})
     account = {"id": 7, "app_id": 123, "account": {"login": "company"}}
 
     def handler(req):
@@ -154,12 +156,12 @@ def test_reconnect_discovers_approved_accounts_without_reinstallation(tmp_path, 
 
     app.state.github_app.transport = httpx.MockTransport(handler)
     with TestClient(app, base_url="http://localhost") as client:
-        result = client.post("/api/github/connect", json={"return_to": "settings"}).json()
+        result = client.post("/api/github/connect", json={"return_to": "settings", "mode": "check"}).json()
         assert result["url"].startswith("https://github.com/login/oauth/authorize?")
-        assert not app.state.github_app.status()["connected"]  # Discovery is not consent.
+        assert app.state.github_app.status()["connected"] == already_connected  # Discovery is not consent.
         response = client.get("/github/callback", params={"state": state_from(result["url"]), "code": "code"}, follow_redirects=False)
         assert response.headers["location"] == "/?page=settings&github=connected"
-        assert app.state.github_app.load()["installations"] == [{"id": 7, "account": "company"}]
+        assert app.state.github_app.load()["installations"] == [{"id": 7, "account": "company"}] + ([personal] if already_connected else [])
         assert "temporary-user-token" not in (tmp_path / "github-app.json").read_text()
         assert "temporary-user-token" not in client.cookies.get("roi_github", "")
 

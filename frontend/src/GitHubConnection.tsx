@@ -108,10 +108,14 @@ export function GitHubConnection({ values, saved, locked, update, saveConnection
         <p className="field-help mt-1">{connection?.connected ? `Connected to ${connection.installations.map(item => item.account).join(", ")}.` : "Read-only access to your repositories."}</p>
       </div></div>
       <Button type="button" variant={connection?.connected ? "outline" : "default"} className="px-4" disabled={busy || !connection}
-        onClick={() => void connect(pending ? "check" : connection?.connected ? "manage" : "connect")}>
-        {busy && !connection?.connected ? "Connecting…" : pending ? "Check access" : connection?.connected ? "Manage access" : "Connect GitHub"}
+        onClick={() => void connect(pending || connection?.connected ? "check" : "connect")}>
+        {busy ? "Checking…" : pending ? "Check access" : connection?.connected ? "Refresh access" : "Connect GitHub"}
       </Button>
     </div>
+    {connection?.connected && !pending && <div className="flex flex-wrap items-center gap-x-2 text-xs muted">
+      <span>Approved a new organization? Refresh access to load its repositories.</span>
+      <Button type="button" variant="link" className="h-auto p-0 text-xs" disabled={busy} onClick={() => void connect("manage")}>Manage access</Button>
+    </div>}
     {pending && <div className="rounded-md border p-4 text-sm" role="status">
       <p className="font-medium">Waiting for GitHub approval</p>
       <p className="mt-1 muted leading-relaxed">A company admin needs to approve repository access on GitHub. Once approved, click Check access to continue.</p>
