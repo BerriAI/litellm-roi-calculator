@@ -8,6 +8,7 @@ from .storage import Store
 
 IDLE_STATE = {"running": False, "phase": "idle", "stage": "idle", "done": 0, "total": 0,
     "estimated": 0, "needs_attention": 0, "error": None}
+PR_CONCURRENCY = 3
 
 
 def utcnow() -> datetime:
@@ -65,19 +66,33 @@ class SyncManager:
                 self.state["stage"] = f"Reading {repo}"
                 queue.extend((repo, pr) for pr in await github.pulls(repo, start, end))
             self.state.update(phase="estimates", stage="Estimating pull requests", total=len(queue))
-            pulls = []
-            for repo, pr in queue:
-                self.state["stage"] = f"Estimating {repo} #{pr['number']}"
-                evidence = await github.evidence(repo, pr)
-                try:
-                    estimate = await estimator.estimate(evidence)
-                except SourceError as exc:
-                    estimate = {"status": "error", "hours": None, "reasoning": str(exc)}
-                evidence.pop("files")
-                evidence.pop("body")
-                pulls.append({**evidence, "estimate": estimate})
-                self.state["done"] += 1
-                self.state["estimated" if estimate["status"] == "estimated" else "needs_attention"] += 1
+            pulls = [None] * len(queue)
+            pending = iter(enumerate(queue))
+
+            async def worker():
+                for index, (repo, pr) in pending:
+                    evidence = await github.evidence(repo, pr)
+                    try:
+                        estimate = await estimator.estimate(evidence)
+                    except SourceError as exc:
+                        estimate = {"status": "error", "hours": None, "reasoning": str(exc)}
+                    evidence.pop("files")
+                    evidence.pop("body")
+                    evidence.pop("commits", None)
+                    pulls[index] = {**evidence, "estimate": estimate}
+                    self.state["done"] += 1
+                    self.state["estimated" if estimate["status"] == "estimated" else "needs_attention"] += 1
+
+            workers = [asyncio.create_task(worker()) for _ in range(min(PR_CONCURRENCY, len(queue)))]
+            try:
+                await asyncio.gather(*workers)
+            finally:
+                # A source failure or cancellation must settle every worker
+                # before clients close or a subsequent sync can begin.
+                for task in workers:
+                    if not task.done():
+                        task.cancel()
+                await asyncio.gather(*workers, return_exceptions=True)
             self.store.save_report({"mode": "live", "start": start.isoformat(), "end": end.isoformat(),
                 "synced_at": utcnow().isoformat(), "repos": settings.repos,
                 "estimator_model": settings.estimator_model, "estimator_prompt": settings.estimator_prompt,
@@ -112,7 +127,7 @@ def demo_report() -> dict:
             "url": "", "login": login, "emails": [address], "profile_email": address,
             "merged_at": day + "T14:20:00Z", "head_sha": f"demo-{i}", "additions": 47 + i * 23,
             "deletions": 12 + i * 4, "estimate": {"status": "estimated", "hours": hours + (i % 3),
-                "reasoning": "Sample estimate for demonstration. A live run includes the model's reasoning grounded in the actual pull request diff.", "model": "your-estimator-model", "cached": False}})
+                "reasoning": "Sample estimate for demonstration. A live run uses the PR description, file change counts, and commit metadata.", "model": "your-estimator-model", "evidence_source": "pr_metadata", "cached": False}})
         spend.append({"date": day, "user_id": login, "email": address, "spend": cost + i, "requests": 150 + i * 27})
     pulls.append({**pulls[0], "number": 156, "login": "casey", "emails": [], "profile_email": "",
         "title": "Add integration tests for billing", "estimate": {**pulls[0]["estimate"], "hours": 5.5}})

@@ -22,5 +22,6 @@ def pr():
     return {"repo": "org/repo", "number": 42, "title": "Fix timezone conversion", "body": "Preserve UTC.",
         "head_sha": "abcdef", "url": "https://github.com/org/repo/pull/42", "login": "alice",
         "emails": ["alice@example.com"], "profile_email": "alice@example.com", "merged_at": "2026-09-12T12:00:00Z",
-        "additions": 1, "deletions": 1, "incomplete_diff": False,
+        "additions": 1, "deletions": 1, "incomplete_metadata": False, "changed_files": 1, "commit_count": 1,
+        "commits": [{"sha": "abcdef", "message": "Fix timezone conversion\n\nPreserve UTC.", "additions": 1, "deletions": 1, "changed_files": 1}],
         "files": [{"filename": "time.py", "status": "modified", "additions": 1, "deletions": 1, "patch": "@@ -1 +1 @@\n-local()\n+utc()"}]}

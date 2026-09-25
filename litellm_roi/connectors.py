@@ -131,6 +131,7 @@ class Gateway:
 
 class GitHub:
     def __init__(self, settings: Settings, transport=None, token_provider=None):
+        self.token_provider = token_provider
         headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
         if settings.github_token and token_provider is None:
             headers["Authorization"] = f"Bearer {settings.github_token}"
@@ -190,24 +191,77 @@ class GitHub:
         login = (detail.get("user") or {}).get("login", "deleted-user")
         files = []
         async for page in self.pages(f"repos/{repo}/pulls/{number}/files", limit=30):
-            files.extend({k: item.get(k) for k in ("filename", "status", "additions", "deletions", "patch")} for item in page)
+            files.extend({k: item.get(k) for k in ("filename", "status", "additions", "deletions")} for item in page)
         emails = set()
         if login not in self.profiles:
             response = await self.client.get(f"users/{login}")
             self.profiles[login] = email(payload(response).get("email")) if response.status_code == 200 else ""
         if self.profiles[login]:
             emails.add(self.profiles[login])
-        async for page in self.pages(f"repos/{repo}/pulls/{number}/commits", limit=3):
-            for commit in page:
-                if (commit.get("author") or {}).get("login", "").casefold() == login.casefold():
-                    address = email(commit.get("commit", {}).get("author", {}).get("email"))
-                    if address:
-                        emails.add(address)
-        missing = len(files) != detail.get("changed_files", len(files)) or any(not complete_patch(f) for f in files)
+        commits, authors, commit_count = await self.commit_metadata(repo, number, detail)
+        for author in authors:
+            if author["login"].casefold() == login.casefold() and (address := email(author["email"])):
+                emails.add(address)
+        missing = len(files) != detail.get("changed_files", len(files)) or len(commits) != commit_count
         return {
             "repo": repo, "number": number, "title": detail["title"], "body": detail.get("body") or "",
             "url": detail["html_url"], "login": login, "emails": sorted(emails),
             "profile_email": self.profiles[login], "merged_at": detail["merged_at"],
             "head_sha": detail["head"]["sha"], "additions": detail.get("additions", 0),
-            "deletions": detail.get("deletions", 0), "files": files, "incomplete_diff": missing,
+            "deletions": detail.get("deletions", 0), "changed_files": detail.get("changed_files", len(files)),
+            "files": files, "commits": commits, "commit_count": commit_count, "incomplete_metadata": missing,
         }
+
+    async def commit_metadata(self, repo: str, number: int, detail: dict) -> tuple[list, list, int]:
+        authorization = self.client.headers.get("Authorization", "")
+        if self.token_provider:
+            authorization = "Bearer " + await self.token_provider(repo)
+        commits, authors = [], []
+        if not authorization:
+            # Public repositories also work without authenticated GraphQL. This
+            # endpoint includes messages, but not individual commit line counts.
+            async for page in self.pages(f"repos/{repo}/pulls/{number}/commits", limit=3):
+                for item in page:
+                    commit = item.get("commit", {})
+                    commits.append({"sha": item.get("sha", ""), "message": commit.get("message", "")})
+                    authors.append({"login": (item.get("author") or {}).get("login", ""),
+                        "email": (commit.get("author") or {}).get("email", "")})
+            return commits, authors, detail.get("commits", len(commits))
+        base = str(self.client.base_url).rstrip("/")
+        endpoint = base.removesuffix("/api/v3") + "/api/graphql" if base.endswith("/api/v3") else base + "/graphql"
+        query = """query($owner:String!, $name:String!, $number:Int!, $cursor:String) {
+          repository(owner:$owner, name:$name) { pullRequest(number:$number) {
+            commits(first:100, after:$cursor) {
+              totalCount pageInfo { hasNextPage endCursor }
+              nodes { commit { oid message additions deletions changedFilesIfAvailable
+                author { email user { login } } } }
+            }
+          } }
+        }"""
+        owner, name = repo.split("/")
+        cursor = None
+        for _ in range(100):
+            data = payload(await request(self.client, "POST", endpoint,
+                headers={"Authorization": authorization}, json={"query": query,
+                    "variables": {"owner": owner, "name": name, "number": number, "cursor": cursor}}))
+            if data.get("errors"):
+                raise SourceError("GitHub could not read commit metadata. Check repository permissions and API compatibility.")
+            try:
+                connection = data["data"]["repository"]["pullRequest"]["commits"]
+                for node in connection["nodes"]:
+                    commit = node["commit"]
+                    commits.append({"sha": commit["oid"], "message": commit["message"],
+                        "additions": commit["additions"], "deletions": commit["deletions"],
+                        "changed_files": commit["changedFilesIfAvailable"]})
+                    author = commit.get("author") or {}
+                    authors.append({"login": (author.get("user") or {}).get("login", ""),
+                        "email": author.get("email", "")})
+                if not connection["pageInfo"]["hasNextPage"]:
+                    return commits, authors, connection["totalCount"]
+                next_cursor = connection["pageInfo"]["endCursor"]
+                if not next_cursor or next_cursor == cursor:
+                    raise ValueError("pagination")
+                cursor = next_cursor
+            except (KeyError, TypeError, ValueError):
+                raise SourceError("GitHub returned incomplete commit metadata. No partial report was saved.") from None
+        raise SourceError("GitHub commit metadata exceeded the pagination limit.")

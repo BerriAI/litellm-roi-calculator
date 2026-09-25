@@ -6,6 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { api, errorMessage, type AppState, type Settings } from "./api";
 import { Field, formValues, settingsUpdate, type FormValues } from "./configuration";
 import { GitHubConnection, githubConnectionFields } from "./GitHubConnection";
+import { SyncProgress } from "./SyncProgress";
 
 const steps = ["Gateway", "Repositories", "Estimator & sync"];
 const stepFields = [
@@ -76,7 +77,7 @@ export function Onboarding({ state, refresh, connectionError }: {
     disabled={locked(name)} placeholder={placeholder} autoComplete={type === "password" ? "new-password" : "off"} />;
   const hasSetup = !!(saved.gateway_url || saved.repos.length);
   const phases = ["spend", "repositories", "estimates"];
-  const activePhase = phases.indexOf(state.status.phase);
+  const activePhase = state.status.total > 0 ? 2 : phases.indexOf(state.status.phase);
 
   return <div className="onboarding">
     <header className="onboarding-brand"><a href="/" className="brand-link" aria-label="LiteLLM ROI Calculator home">
@@ -92,18 +93,12 @@ export function Onboarding({ state, refresh, connectionError }: {
         <p className="setup-footnote">Engineering hours are model estimates, not actual time spent.</p>
       </section> : progress ? <section className="setup-panel">
         <h1 ref={heading} tabIndex={-1}>{state.status.running ? "Preparing your dashboard" : state.status.phase === "cancelled" ? "Backfill cancelled" : state.status.error ? "Backfill needs attention" : "Starting backfill"}</h1>
-        <p className="onboarding-description">Importing the last {saved.backfill_days} days from your gateway and {saved.repos.length} {saved.repos.length === 1 ? "repository" : "repositories"}.</p>
+        <p className="onboarding-description">{state.status.running ? "Importing the last" : "History window:"} {saved.backfill_days} days from your gateway and {saved.repos.length} {saved.repos.length === 1 ? "repository" : "repositories"}.</p>
         <ol className="backfill-stages" aria-label="Backfill progress">{["Import gateway spend", "Import merged pull requests", "Estimate engineering hours"].map((label, i) => <li key={label} className={activePhase === i ? "active" : ""}>
           {activePhase > i ? <Check aria-label="Complete" /> : state.status.running && activePhase === i ? <Loader2 className="animate-spin" aria-label="In progress" /> : <Circle aria-label="Pending" />}
           <span>{label}</span>
         </li>)}</ol>
-        <div className="backfill-detail" role="status" aria-live="polite">
-          <p>{state.status.stage === "idle" ? "Starting…" : state.status.stage}</p>
-          {state.status.total > 0 && <>
-            <progress max={state.status.total} value={state.status.done} aria-label="Pull requests processed" />
-            <p className="muted">{state.status.done} of {state.status.total} PRs processed · {state.status.estimated} estimated{state.status.needs_attention > 0 && ` · ${state.status.needs_attention} need attention`}</p>
-          </>}
-        </div>
+        <div className="backfill-detail"><SyncProgress status={state.status} /></div>
         {state.status.error && <p role="alert" className="text-sm text-destructive mt-5">{state.status.error}</p>}
         <div className="onboarding-actions">
           {state.status.running ? <Button variant="outline" disabled={busy} onClick={() => void syncAction(true)}>Cancel backfill</Button> : <>
@@ -131,10 +126,11 @@ export function Onboarding({ state, refresh, connectionError }: {
                   onChange={e => update("estimator_model", e.target.value)} placeholder="Model name on your gateway" />
                 <datalist id="setup-models">{models.map(model => <option key={model} value={model} />)}</datalist>
               </Field></div><Button type="button" variant="outline" onClick={() => void loadModels()}>Load models</Button></div>
+              <p className="field-help">We recommend a small model, such as GPT Luna or Claude Haiku.</p>
               <details className="details"><summary>Estimator prompt</summary><div className="pt-2"><Field label="Prompt">
                 <Textarea name="estimator_prompt" rows={4} maxLength={20000} value={values.estimator_prompt} onChange={e => update("estimator_prompt", e.target.value)} />
               </Field><Button type="button" variant="link" className="p-0 mt-2 h-auto" onClick={() => update("estimator_prompt", state.default_prompt)}>Reset prompt</Button></div></details>
-              <p className="text-sm muted leading-relaxed">PR titles, descriptions, and diffs are sent to this model through your gateway. Temperature is fixed at 0. Estimates are not actual time spent.</p>
+              <p className="text-sm muted leading-relaxed">PR descriptions, file change counts, and commit metadata are sent to this model through your gateway. Code patches are excluded. Temperature is fixed at 0.</p>
               <div className="grid gap-5 sm:grid-cols-2">
                 <Field label="Backfill (days)" help="Rolling history window, including today."><Input name="backfill_days" type="number" min={1} max={3650} required value={values.backfill_days} onChange={e => update("backfill_days", e.target.value)} /></Field>
                 <Field label="Update interval (minutes)" help="0 for manual, or at least 5 minutes."><Input name="update_interval_minutes" type="number" min={0} max={43200} required value={values.update_interval_minutes} onChange={e => update("update_interval_minutes", e.target.value)} /></Field>

@@ -45,9 +45,9 @@ A fresh workspace opens with **Set up your data**, followed by a guided setup. T
 
 1. **Gateway:** your LiteLLM proxy URL and an admin or read-only admin key with access to `/user/list` and `/user/daily/activity`. Choose a dedicated inference key for estimates when using a read-only admin key.
 2. **Repositories:** click **Connect GitHub**, approve read-only access on GitHub, and select repositories. The first connection includes a prefilled GitHub App registration for your copy of the calculator. Private and internal repos are supported, subject to your organization’s approval. Manual tokens and GitHub Enterprise configuration are under **Advanced**.
-3. **Estimator:** select or enter a model deployment on your gateway. The model must accept `temperature: 0` and JSON-object output. Edit the default prompt if desired.
-4. **Backfill and updates:** choose a rolling history window (1–3,650 days, default 30) and an update interval (default 60 minutes). Set the interval to **0 for manual only**, or at least 5 minutes for automatic updates. Both controls are available during setup and in Settings afterward.
-5. Click **Start backfill**. Progress shows gateway import, repository import, and the number of PRs processed and estimated. The dashboard opens when the first report is ready. You can reload the page during backfill, cancel it, or retry after an error.
+3. **Estimator:** select or enter a model deployment on your gateway. We recommend a small model, such as GPT Luna or Claude Haiku. The model must accept `temperature: 0` and JSON-object output. Edit the default prompt if desired.
+4. **Backfill and updates:** start with the **past week** (7 days), or choose a rolling history window of 1–3,650 days. The update interval defaults to 60 minutes. Set it to **0 for manual only**, or at least 5 minutes for automatic updates. Both controls are available during setup and in Settings afterward.
+5. Click **Start backfill**. A progress bar shows import activity, then the percentage and count of PRs processed. Up to three PRs are processed concurrently, including their model estimates. The dashboard opens when the first report is ready. You can reload the page during backfill, cancel it, or retry after an error. Later syncs also show a progress bar.
 
 Automatic updates begin only after the first successful backfill and run while the local process is running. Saving setup does not start inference. Failed or cancelled initial backfills require an explicit retry; cached estimates are reused. On restart, the app checks the last successful report and catches up if its next update is overdue. A change to the history window takes effect on the next sync. Stop a sync with Cancel; the previous complete source snapshot is retained.
 
@@ -89,7 +89,11 @@ The default prompt is intentionally simple and contains no hour anchors or examp
 
 > Estimate how many hours it would take an engineer to complete the work in this pull request. Explain your estimate briefly.
 
-The application adds a JSON response contract and tells the estimator to treat PR content as evidence, not instructions. Every request uses **temperature 0**. It sends the title, description, and file diffs—not elapsed PR duration or a suggested hour range. Models that do not support temperature 0 are not silently given a different temperature.
+The application adds a JSON response contract and asks the estimator to summarize the apparent changes and explain its estimate using the supplied metadata. Every request uses **temperature 0**. Evidence includes the PR title and description, net additions and deletions, filenames and change counts per file, and commit messages with their full descriptions. Authenticated connections also include per-commit change counts. Code patches, elapsed PR duration, and suggested hour ranges are excluded. Commit totals can overlap and are not added to the PR's net totals. Models that do not support temperature 0 are not silently given a different temperature.
+
+This is a metadata-based assessment. It relies on the accuracy of PR descriptions and commit messages and does not verify the implementation or code quality.
+
+Named GPT-6 Luna and Sol deployments automatically use `reasoning_effort: none` to support temperature 0. If you use a custom gateway alias for one of these models, configure that default on the gateway. GPT-6 Astra does not support this mode or temperature 0.
 
 ## What the dashboard calculates
 
@@ -113,8 +117,8 @@ In **People**, click **Match email** to connect a GitHub username to a gateway e
 ### Estimation coverage and caching
 
 - Inspect every estimate's reasoning, model, and status by opening a PR.
-- Cached estimates are keyed by gateway URL, model, prompt, schema, head SHA, and exact PR evidence. Unchanged PRs reuse their estimate. Changing the model, prompt, title, description, or diff generates a new estimate.
-- Incomplete or missing diffs and PRs above the 160,000-character input limit are marked **Needs review**. The app never silently truncates a PR and presents a full estimate.
+- Cached estimates are keyed by gateway URL, model, prompt, schema, head SHA, and exact PR metadata. Unchanged PRs reuse their estimate. Changing the model, prompt, title, description, commit messages, or change counts generates a new estimate. Earlier estimates based on diffs are not reused.
+- Missing file or commit metadata and metadata above the 160,000-character input limit are marked **Needs review**. Large or binary code patches do not block estimation because patches are not part of the evidence. The app never silently truncates metadata and presents a full estimate.
 - Failed model calls are visible and retried on a future sync. They are not cached as zero hours.
 - Sync reads gateway spend **before** making estimator calls. Estimator calls can appear in subsequent gateway activity. Use a dedicated estimator key owned by a service user with no PRs to keep that spend outside the matched cohort. Requests are tagged `litellm-roi-estimator`.
 - Repository or gateway import failures preserve the last report. Individual estimation failures produce a report with explicitly incomplete coverage.
@@ -123,7 +127,7 @@ In **People**, click **Match email** to connect a GitHub username to a gateway e
 
 The app reads GitHub repositories and gateway accounting data. It writes only local configuration/reports and makes inference calls to your chosen gateway. No data is sent to a separate analytics service.
 
-**PR titles, descriptions, and code diffs are sent to your configured estimator model through the gateway.** Your gateway/provider's handling applies. Tokens are never returned to the browser. Local `config.json` and `github-app.json` store credentials in plaintext with owner-only permissions (`0600`); protect the machine and data-directory backups. GitHub connection state uses a short-lived HttpOnly, SameSite cookie (Secure when hosted); it is not a dashboard login session. SQLite stores report metadata, email matches, model reasoning, and cached estimates. Raw diffs are not persisted by this application.
+**PR titles, descriptions, file change counts, and commit messages and statistics are sent to your configured estimator model through the gateway.** Code patches are excluded; descriptions and commit messages may themselves contain code or sensitive text. Your gateway/provider's handling applies. Tokens are never returned to the browser. Local `config.json` and `github-app.json` store credentials in plaintext with owner-only permissions (`0600`); protect the machine and data-directory backups. GitHub connection state uses a short-lived HttpOnly, SameSite cookie (Secure when hosted); it is not a dashboard login session. SQLite stores report metadata, email matches, model reasoning, and cached estimates. Raw patches and full descriptions and commit messages are not persisted by this application.
 
 The app binds to `127.0.0.1` by default and uses no CDN assets. Locally it rejects non-local Host headers; hosted deployments accept only their configured public origin and reject cross-origin API requests. `--host 0.0.0.0` supports Docker or hosting. This is one shared workspace, not a multi-tenant service.
 

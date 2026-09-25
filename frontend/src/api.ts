@@ -30,6 +30,7 @@ export interface Pull {
     reasoning?: string;
     error?: string;
     model?: string;
+    evidence_source?: string;
     cached?: boolean;
   };
 }

@@ -1,3 +1,4 @@
+import json
 from datetime import date
 
 import httpx
@@ -61,6 +62,7 @@ async def test_git_pr_window_filters_unmerged_and_paginates(settings):
 
 
 async def test_email_evidence_only_uses_pr_author_and_detects_missing_file(settings):
+    settings.github_token = ""
     def handler(req):
         path = req.url.path
         if path.endswith("/files"):
@@ -79,12 +81,74 @@ async def test_email_evidence_only_uses_pr_author_and_detects_missing_file(setti
     evidence = await github.evidence("org/repo", {"number": 42})
     await github.close()
     assert evidence["emails"] == ["alice@example.com"]
-    assert evidence["incomplete_diff"] is True
+    assert evidence["incomplete_metadata"] is True
+    assert "patch" not in evidence["files"][0]
 
 
 def test_detects_truncated_patch_even_when_patch_present():
     assert not complete_patch({"patch": "@@\n+one", "additions": 300, "deletions": 0})
     assert complete_patch({"patch": "@@\n+one\n-old", "additions": 1, "deletions": 1})
+
+
+@pytest.mark.parametrize("api_url,graphql_path", [("https://api.github.com", "/graphql"),
+    ("https://github.company.com/api/v3", "/api/graphql")])
+async def test_authenticated_commit_metadata_paginates_and_ignores_missing_binary_patch(settings, api_url, graphql_path):
+    settings.github_api_url = api_url
+    cursors = []
+
+    def handler(req):
+        path = req.url.path
+        assert req.headers["authorization"] == "Bearer test-github-secret"
+        if path == graphql_path:
+            body = json.loads(req.content)
+            assert body["variables"]["owner"] == "org"
+            assert body["variables"]["number"] == 42
+            cursor = body["variables"]["cursor"]
+            cursors.append(cursor)
+            login = "alice" if cursor is None else "bob"
+            return httpx.Response(200, json={"data": {"repository": {"pullRequest": {"commits": {
+                "totalCount": 2, "pageInfo": {"hasNextPage": cursor is None, "endCursor": "next"},
+                "nodes": [{"commit": {"oid": login, "message": "Add diagram\n\nDescribe the flow.",
+                    "additions": 1, "deletions": 0, "changedFilesIfAvailable": 1,
+                    "author": {"email": f"{login}@example.com", "user": {"login": login}}}}],
+            }}}}})
+        if path.endswith("/files"):
+            return httpx.Response(200, json=[{"filename": "diagram.png", "status": "added", "additions": 0, "deletions": 0}])
+        if "/users/" in path:
+            return httpx.Response(200, json={"email": None})
+        return httpx.Response(200, json={"number": 42, "user": {"login": "alice"}, "title": "Add diagram",
+            "html_url": api_url + "/org/repo/pull/42", "head": {"sha": "abc"}, "merged_at": "2026-09-12T00:00:00Z",
+            "changed_files": 1, "commits": 2})
+
+    github = GitHub(settings, httpx.MockTransport(handler))
+    evidence = await github.evidence("org/repo", {"number": 42})
+    await github.close()
+    assert cursors == [None, "next"]
+    assert evidence["emails"] == ["alice@example.com"]
+    assert not evidence["incomplete_metadata"]
+    assert evidence["commit_count"] == len(evidence["commits"]) == 2
+    assert evidence["commits"][0]["message"] == "Add diagram\n\nDescribe the flow."
+    assert evidence["commits"][0]["additions"] == 1
+
+
+async def test_commit_metadata_uses_installation_token_and_rejects_partial_graphql_response(settings):
+    repositories = []
+
+    async def token_provider(repo):
+        repositories.append(repo)
+        return "test-installation-token"
+
+    def handler(req):
+        assert req.url.path == "/graphql"
+        assert req.headers["authorization"] == "Bearer test-installation-token"
+        return httpx.Response(200, json={"data": {}, "errors": [{"message": "test-installation-token private upstream details"}]})
+
+    github = GitHub(settings, httpx.MockTransport(handler), token_provider=token_provider)
+    with pytest.raises(SourceError) as exc:
+        await github.commit_metadata("org/repo", 42, {})
+    await github.close()
+    assert repositories == ["org/repo"]
+    assert "test-installation-token" not in str(exc.value)
 
 
 async def test_gateway_missing_entity_breakdown_is_unassigned(settings):

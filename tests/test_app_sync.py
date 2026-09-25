@@ -19,6 +19,7 @@ from litellm_roi.sync import SyncManager, window
 
 def test_settings_persist_schedule_without_returning_secrets(tmp_path):
     with TestClient(create_app(tmp_path), base_url="http://localhost") as client:
+        assert client.get("/api/state").json()["settings"]["backfill_days"] == 7
         response = client.put("/api/settings", json={"gateway_url": "https://gateway.example.com", "admin_key": "never-return-this",
             "github_token": "nor-this-token", "repos": ["org/repo"], "estimator_model": "test", "backfill_days": 90, "update_interval_minutes": 360})
         assert response.status_code == 200
@@ -88,6 +89,8 @@ def test_backfill_is_inclusive_utc_and_schedule_manual(settings, monkeypatch, tm
 
 
 async def test_full_sync_caches_estimates_and_preserves_previous_report_on_source_failure(settings, tmp_path, monkeypatch):
+    settings.github_token = ""
+    settings.backfill_days = 30
     store = Store(tmp_path)
     calls = {"model": 0, "fail": False}
     now = datetime(2026, 9, 25, 12, tzinfo=timezone.utc)
@@ -304,6 +307,119 @@ async def test_cancel_immediately_after_start_allows_retry(settings, tmp_path):
     assert manager.next_update is None
     manager.start(settings)
     await manager.cancel()
+
+
+async def test_parallel_sync_bounds_work_and_preserves_order(settings, tmp_path, monkeypatch, pr):
+    manager = SyncManager(Store(tmp_path))
+    entered = [asyncio.Event() for _ in range(7)]
+    release = [asyncio.Event() for _ in range(7)]
+    active = set()
+    peak = 0
+
+    async def spend(*_):
+        return [], {}
+
+    async def pulls(*_):
+        return [{"number": n} for n in range(7)]
+
+    async def evidence(_self, _repo, item):
+        nonlocal peak
+        n = item["number"]
+        active.add(n)
+        peak = max(peak, len(active))
+        entered[n].set()
+        await release[n].wait()
+        return {**pr, "number": n}
+
+    async def estimate(_self, item):
+        n = item["number"]
+        active.remove(n)
+        return {"status": "estimated" if n != 1 else "needs_review", "hours": 4 if n != 1 else None}
+
+    monkeypatch.setattr(Gateway, "spend", spend)
+    monkeypatch.setattr(GitHub, "pulls", pulls)
+    monkeypatch.setattr(GitHub, "evidence", evidence)
+    monkeypatch.setattr(Estimator, "estimate", estimate)
+    manager.start(settings)
+    try:
+        async with asyncio.timeout(5):
+            await asyncio.gather(*(event.wait() for event in entered[:3]))
+            assert active == {0, 1, 2}
+            assert manager.state["done"] == 0 and manager.state["total"] == 7
+            release[2].set()
+            await entered[3].wait()
+            assert active == {0, 1, 3}
+            assert manager.state["done"] == manager.state["estimated"] == 1
+            for event in release:
+                event.set()
+            await manager.task
+    finally:
+        await manager.cancel()
+    assert peak == 3 and not active
+    assert manager.state["done"] == 7
+    assert manager.state["estimated"] == 6 and manager.state["needs_attention"] == 1
+    report = manager.store.latest()
+    assert [item["number"] for item in report["pulls"]] == list(range(7))
+    assert all(not ({"files", "body", "commits"} & item.keys()) for item in report["pulls"])
+
+
+@pytest.mark.parametrize("source_failure", [False, True])
+async def test_parallel_workers_settle_before_close_on_cancel_or_failure(settings, tmp_path, monkeypatch, source_failure):
+    from litellm_roi.connectors import SourceError
+    manager = SyncManager(Store(tmp_path))
+    previous = manager.store.save_report({"mode": "live", "synced_at": datetime.now(timezone.utc).isoformat(), "pulls": []})
+    entered = asyncio.Event()
+    fail = asyncio.Event()
+    active = set()
+    finished = set()
+    closed = []
+
+    async def spend(*_):
+        return [], {}
+
+    async def pulls(*_):
+        return [{"number": n} for n in range(5)]
+
+    async def evidence(_self, _repo, item):
+        n = item["number"]
+        active.add(n)
+        if len(active) == 3:
+            entered.set()
+        try:
+            if n == 0 and source_failure:
+                await fail.wait()
+                raise SourceError("GitHub unavailable.")
+            await asyncio.Event().wait()
+        finally:
+            active.remove(n)
+            finished.add(n)
+
+    async def close(self):
+        assert not active
+        closed.append(type(self).__name__)
+        await self.client.aclose()
+
+    monkeypatch.setattr(Gateway, "spend", spend)
+    monkeypatch.setattr(GitHub, "pulls", pulls)
+    monkeypatch.setattr(GitHub, "evidence", evidence)
+    for cls in (Gateway, GitHub, Estimator):
+        monkeypatch.setattr(cls, "close", close)
+    manager.start(settings)
+    try:
+        async with asyncio.timeout(5):
+            await entered.wait()
+            if source_failure:
+                fail.set()
+                await manager.task
+            else:
+                await manager.cancel()
+    finally:
+        await manager.cancel()
+    assert finished == {0, 1, 2}
+    assert sorted(closed) == ["Estimator", "Gateway", "GitHub"]
+    assert manager.state["phase"] == ("error" if source_failure else "cancelled")
+    assert manager.state["running"] is False
+    assert manager.store.latest()["id"] == previous["id"]
 
 
 async def test_failed_initial_backfill_requires_explicit_retry(settings, tmp_path, monkeypatch):

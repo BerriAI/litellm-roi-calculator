@@ -10,6 +10,7 @@ import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { SettingsForm } from "./SettingsForm";
 import { Onboarding } from "./Onboarding";
+import { SyncProgress } from "./SyncProgress";
 import { api, money, number, date, safeURL, errorMessage, type AppState, type Pull, type Report } from "./api";
 
 type Page = "overview" | "people" | "settings";
@@ -125,7 +126,7 @@ export function App() {
         </div>
       </div>
       {(error || connectionError || state.status.error) && <div className="notice text-destructive" role="alert">{error || connectionError || state.status.error}</div>}
-      {state.status.running && <div className="notice" role="status"><span>{state.status.stage}{state.status.total > 0 && ` · ${state.status.done} / ${state.status.total}`}</span>
+      {state.status.running && <div className="notice"><div className="min-w-0 flex-1"><SyncProgress status={state.status} /></div>
         <Button variant="outline" size="sm" onClick={() => void syncAction(true)} disabled={busy}>Cancel sync</Button></div>}
       {page === "settings" ? <SettingsForm state={state} refresh={refresh} onSync={startSync} /> : !report ?
         <div className="rounded-lg border p-8 text-sm muted">{state.status.running ? "Your report will appear when the sync finishes." : "No report yet. Sync to import spend and estimate merged PRs."}</div> :
@@ -151,7 +152,8 @@ export function App() {
             <DialogDescription>{selectedPR.repo} #{selectedPR.number} · {selectedPR.login}</DialogDescription></DialogHeader>
           <div><p className="text-sm muted">Estimated engineering hours</p><p className="mt-2 text-3xl font-semibold tabular-nums">
             {selectedPR.estimate.status === "estimated" ? `${number(selectedPR.estimate.hours)} hrs` : selectedPR.estimate.status === "error" ? "Estimate failed" : "Needs review"}
-          </p><p className="mt-2 text-xs muted">Model estimate, not actual hours spent or hours saved by AI.</p></div>
+          </p><p className="mt-2 text-xs muted">Model estimate, not actual hours spent or hours saved by AI.</p>
+          {selectedPR.estimate.evidence_source === "pr_metadata" && <p className="mt-1 text-xs muted">Based on PR descriptions, file change counts, and commit metadata.</p>}</div>
           <div><h3 className="mb-2 font-medium">Reasoning</h3><p className="whitespace-pre-wrap leading-relaxed">{selectedPR.estimate.reasoning || "No estimate available."}</p></div>
           <dl className="grid grid-cols-[auto_1fr] gap-x-5 gap-y-2 text-xs">
             <dt className="muted">Model</dt><dd className="break-all">{selectedPR.estimate.model || report?.estimator_model}</dd>
