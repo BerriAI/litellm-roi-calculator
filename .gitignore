@@ -15,4 +15,5 @@ node_modules/
 *.tsbuildinfo
 github-app.json
 github-session.json
+github-oauth.json
 *.pem

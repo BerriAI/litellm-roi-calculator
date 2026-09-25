@@ -16,6 +16,7 @@ from .analytics import summarize
 from .config import DEFAULT_PROMPT, ConfigStore, CredentialDestinationError, Settings, environment_fields
 from .connectors import Gateway, GitHub, SourceError, request
 from .github_app import GitHubApp
+from .github_oauth import GitHubOAuth
 from .storage import Store
 from .sync import IDLE_STATE, SyncManager, demo_report, utcnow
 
@@ -33,14 +34,19 @@ def create_app(data_dir: Path | None = None, *, demo_only: bool = False) -> Fast
         return public_url or str(req.base_url).rstrip("/")
 
     def make_github(settings):
+        if settings.github_connection == "oauth":
+            # OAuth credentials are never sent to a user-editable API URL.
+            return GitHub(settings.model_copy(update={"github_api_url": "https://api.github.com", "github_token": ""}),
+                user_token_provider=github_oauth.token)
         return GitHub(settings, token_provider=github_app.token_for_repo) if settings.github_connection == "app" else GitHub(settings)
 
     # A demo process never opens a real workspace, even if configured via environment.
-    config = store = manager = github_app = None
+    config = store = manager = github_app = github_oauth = None
     if not demo_only:
         root = data_dir or Path(os.environ.get("ROI_DATA_DIR", "~/.litellm-roi")).expanduser()
         config, store = ConfigStore(root), Store(root)
         github_app = GitHubApp(root)
+        github_oauth = GitHubOAuth(root)
         manager = SyncManager(store, make_github)
 
     async def scheduler():
@@ -73,6 +79,7 @@ def create_app(data_dir: Path | None = None, *, demo_only: bool = False) -> Fast
     app = FastAPI(title="LiteLLM ROI Calculator", lifespan=lifespan)
     app.state.manager, app.state.store, app.state.config = manager, store, config
     app.state.github_app = github_app
+    app.state.github_oauth = github_oauth
 
     @app.middleware("http")
     async def local_only(req: Request, call_next):
@@ -168,9 +175,9 @@ def create_app(data_dir: Path | None = None, *, demo_only: bool = False) -> Fast
         settings = config.load()
         if installation:
             return await github_app.repositories(installation, page)
-        if not org and not settings.github_token:
+        if not org and not settings.github_token and settings.github_connection != "oauth":
             raise SourceError("Add a GitHub token to browse your repositories, or enter an organization to browse public repositories.")
-        github = GitHub(settings)
+        github = make_github(settings)
         try:
             return await github.repositories(org, page)
         finally:
@@ -213,4 +220,5 @@ def create_app(data_dir: Path | None = None, *, demo_only: bool = False) -> Fast
 
     if not demo_only:
         github_app.install(app, config, origin, secure=bool(public_url))
+        github_oauth.install(app, config, origin)
     return app

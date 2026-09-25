@@ -9,3 +9,7 @@ tests
 .ruff_cache
 frontend
 dist
+github-app.json
+github-oauth.json
+github-session.json
+*.pem
