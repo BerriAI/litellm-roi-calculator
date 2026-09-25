@@ -34,7 +34,7 @@ class Estimator:
         self.settings = settings
         self.store = store
         base = settings.gateway_url.rstrip("/").removesuffix("/v1")
-        self.client = httpx.AsyncClient(base_url=base + "/", timeout=180, transport=transport,
+        self.client = httpx.AsyncClient(base_url=base + "/", timeout=180, transport=transport, follow_redirects=False,
             headers={"Authorization": f"Bearer {settings.estimator_key or settings.admin_key}"})
 
     async def close(self):

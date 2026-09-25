@@ -13,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 
 from .analytics import summarize
-from .config import DEFAULT_PROMPT, ConfigStore, Settings, environment_overrides
+from .config import DEFAULT_PROMPT, ConfigStore, CredentialDestinationError, Settings, environment_fields
 from .connectors import Gateway, GitHub, SourceError, request
 from .github_app import GitHubApp
 from .storage import Store
@@ -108,7 +108,7 @@ def create_app(data_dir: Path | None = None, *, demo_only: bool = False) -> Fast
         settings = config.load()
         report = store.latest()
         return {"demo_only": False, "settings": settings.public(), "status": manager.status(), "default_prompt": DEFAULT_PROMPT,
-            "environment_fields": list(environment_overrides()),
+            "environment_fields": environment_fields(),
             "report": summarize(report, settings.identity_map) if report else None}
 
     @app.put("/api/settings")
@@ -119,6 +119,8 @@ def create_app(data_dir: Path | None = None, *, demo_only: bool = False) -> Fast
             raise HTTPException(400, "Unknown settings field.")
         try:
             saved = config.save(update)
+        except CredentialDestinationError as exc:
+            raise HTTPException(400, str(exc)) from None
         except ValidationError as exc:
             raise HTTPException(422, "; ".join(e["msg"] for e in exc.errors(include_input=False))) from None
         manager.schedule(saved)

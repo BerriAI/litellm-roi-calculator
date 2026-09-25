@@ -67,7 +67,7 @@ def complete_patch(file: dict) -> bool:
 class Gateway:
     def __init__(self, settings: Settings, transport=None):
         base = settings.gateway_url.rstrip("/").removesuffix("/v1")
-        self.client = httpx.AsyncClient(base_url=base + "/", headers={"Authorization": f"Bearer {settings.admin_key}"}, timeout=45, transport=transport)
+        self.client = httpx.AsyncClient(base_url=base + "/", headers={"Authorization": f"Bearer {settings.admin_key}"}, timeout=45, transport=transport, follow_redirects=False)
 
     async def close(self):
         await self.client.aclose()
@@ -145,7 +145,7 @@ class GitHub:
                     req.headers["Authorization"] = "Bearer " + await token_provider("/".join(parts[1:3]))
 
         self.client = httpx.AsyncClient(base_url=settings.github_api_url + "/", headers=headers, timeout=45,
-            transport=transport, event_hooks={"request": [authorize]})
+            transport=transport, event_hooks={"request": [authorize]}, follow_redirects=False)
         self.profiles = {}
 
     async def close(self):

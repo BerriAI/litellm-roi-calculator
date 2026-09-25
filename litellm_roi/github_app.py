@@ -72,7 +72,7 @@ class GitHubApp:
         if token:
             headers["Authorization"] = f"Bearer {token}"
         return httpx.AsyncClient(base_url=("https://github.com" if oauth else API_URL) + "/",
-            headers=headers, timeout=30, transport=self.transport)
+            headers=headers, timeout=30, transport=self.transport, follow_redirects=False)
 
     def app_token(self):
         data = self.load()

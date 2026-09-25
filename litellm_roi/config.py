@@ -12,6 +12,11 @@ DEFAULT_PROMPT = (
     "Estimate how many hours it would take an engineer to complete the work in this pull request without AI assistance. "
     "Explain your estimate briefly."
 )
+SECRET_FIELDS = ("admin_key", "estimator_key", "github_token")
+
+
+class CredentialDestinationError(ValueError):
+    """Changing a destination must never redirect an environment credential."""
 
 
 def email(value: str | None) -> str:
@@ -95,8 +100,8 @@ class Settings(BaseModel):
         return value.strip()
 
     def public(self) -> dict:
-        values = self.model_dump(exclude={"admin_key", "estimator_key", "github_token"})
-        for name in ("admin_key", "estimator_key", "github_token"):
+        values = self.model_dump(exclude=set(SECRET_FIELDS))
+        for name in SECRET_FIELDS:
             values[f"has_{name}"] = bool(getattr(self, name))
         values["temperature"] = 0
         values["ready"] = bool(self.gateway_url and self.admin_key and self.repos and self.estimator_model)
@@ -122,6 +127,15 @@ def environment_overrides() -> dict:
     return values
 
 
+def environment_fields() -> list[str]:
+    fields = set(environment_overrides())
+    if fields & {"admin_key", "estimator_key"}:
+        fields.add("gateway_url")
+    if "github_token" in fields:
+        fields.add("github_api_url")
+    return sorted(fields)
+
+
 class ConfigStore:
     def __init__(self, root: Path):
         self.root = root
@@ -137,8 +151,14 @@ class ConfigStore:
 
     def save(self, update: dict) -> Settings:
         data = self.load().model_dump()
-        Settings(**{**data, **update})
-        for name in ("admin_key", "estimator_key", "github_token"):
+        candidate = Settings(**{**data, **update})
+        managed = environment_overrides()
+        if managed.keys() & {"admin_key", "estimator_key"} and candidate.gateway_url != data["gateway_url"]:
+            raise CredentialDestinationError("The gateway URL is locked while a gateway key is supplied by the server environment. Change the URL on the server.")
+        if "github_token" in managed and candidate.github_api_url != data["github_api_url"]:
+            raise CredentialDestinationError("The GitHub API URL is locked while a GitHub token is supplied by the server environment. Change the URL on the server.")
+        update = dict(update)
+        for name in SECRET_FIELDS:
             if update.get(name) == "":
                 update.pop(name)
         if update.get("gateway_url", data["gateway_url"]).rstrip("/") != data["gateway_url"]:
@@ -148,10 +168,14 @@ class ConfigStore:
             data["github_token"] = ""
         data.update(update)
         settings = Settings(**data)
+        stored = settings.model_dump()
+        for name in SECRET_FIELDS:
+            if name in managed:
+                stored[name] = ""
         fd, temp = tempfile.mkstemp(dir=self.root, prefix=".config-")
         try:
             with os.fdopen(fd, "w") as stream:
-                json.dump(settings.model_dump(), stream, indent=2)
+                json.dump(stored, stream, indent=2)
             os.replace(temp, self.path)
         finally:
             if os.path.exists(temp):

@@ -26,6 +26,6 @@ export function settingsUpdate(values: FormValues, locked: string[], fields = Ob
 export function Field({ label, help, children, locked = false }: {
   label: string; help?: string; children: ReactNode; locked?: boolean;
 }) {
-  return <label className="field"><span>{label} {locked && <span className="muted text-xs font-normal">(set by environment)</span>}</span>
+  return <label className="field"><span>{label} {locked && <span className="muted text-xs font-normal">(managed by server)</span>}</span>
     {children}{help && <span className="field-help">{help}</span>}</label>;
 }

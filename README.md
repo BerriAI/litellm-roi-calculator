@@ -73,6 +73,8 @@ This is a repository connection, **not a login gate for the dashboard**. No Goog
 
 Copy `.env.example` to `.env` and uncomment the fields you want to manage through your environment. Nonempty environment values override dashboard settings and are labeled in the UI. Empty or whitespace-only values are ignored, leaving those fields editable in the dashboard. Never commit credentials.
 
+When a gateway key is supplied through the environment, the gateway URL is also server-managed: set `LITELLM_GATEWAY_URL` on the server. Likewise, an environment-supplied `GITHUB_TOKEN` locks the GitHub API URL; set `GITHUB_API_URL` on the server for Enterprise. The API rejects destination changes, so public settings cannot redirect an environment credential. Environment-supplied keys are not copied into `config.json` when settings are saved. Changing a dashboard-configured destination clears its saved keys, and authenticated connections do not follow redirects.
+
 | Variable | Purpose |
 | --- | --- |
 | `LITELLM_GATEWAY_URL` | Gateway base URL, with or without `/v1` |
