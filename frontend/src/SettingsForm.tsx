@@ -1,7 +1,9 @@
 import { useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { TextPicker } from "./TextPicker";
 import { Textarea } from "@/components/ui/textarea";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { api, errorMessage, type AppState, type Settings } from "./api";
 import { GitHubConnection, githubConnectionFields } from "./GitHubConnection";
 import { Field, formValues, settingsUpdate, type FormValues } from "./configuration";
@@ -13,6 +15,7 @@ export function SettingsForm({ state, refresh, onSync }: {
   const [saved, setSaved] = useState(state.settings);
   const [models, setModels] = useState<string[]>([]);
   const [busy, setBusy] = useState("");
+  const [resetOpen, setResetOpen] = useState(false);
   const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null);
   const locked = (name: keyof FormValues) => state.environment_fields.includes(name);
   const update = (name: keyof FormValues, value: string) => { setValues(v => ({ ...v, [name]: value })); setMessage(null); };
@@ -53,6 +56,13 @@ export function SettingsForm({ state, refresh, onSync }: {
   />;
   const submit = (event: FormEvent) => { event.preventDefault(); void action("save"); };
 
+  async function resetSetup() {
+    setBusy("reset"); setMessage(null);
+    try { await api("/api/setup/reset", "POST", {}); await refresh(); }
+    catch (error) { setMessage({ text: errorMessage(error), error: true }); }
+    finally { setBusy(""); setResetOpen(false); }
+  }
+
   return <form onSubmit={submit} className="max-w-3xl">
     <fieldset disabled={!!busy || state.status.running}>
       <section className="form-section">
@@ -74,9 +84,8 @@ export function SettingsForm({ state, refresh, onSync }: {
         <div className="form-fields">
           <div className="flex items-end gap-2">
             <div className="min-w-0 flex-1"><Field label="Model" locked={locked("estimator_model")}>
-              <Input name="estimator_model" list="gateway-models" value={values.estimator_model} disabled={locked("estimator_model")}
-                onChange={e => update("estimator_model", e.target.value)} placeholder="Model name on your gateway" />
-              <datalist id="gateway-models">{models.map(model => <option key={model} value={model} />)}</datalist>
+              <TextPicker items={models} name="estimator_model" value={values.estimator_model} disabled={locked("estimator_model")}
+                onChange={value => update("estimator_model", value)} placeholder="Model name on your gateway" />
             </Field></div>
             <Button type="button" variant="outline" onClick={() => void action("models")}>{busy === "models" ? "Loading…" : "Load models"}</Button>
           </div>
@@ -95,9 +104,9 @@ export function SettingsForm({ state, refresh, onSync }: {
             <Input name="backfill_days" type="number" min={1} max={3650} required value={values.backfill_days}
               onChange={e => update("backfill_days", e.target.value)} />
           </Field>
-          <Field label="Update interval (minutes)" help="0 for manual updates, or at least 5 minutes.">
-            <Input name="update_interval_minutes" type="number" min={0} max={43200} required value={values.update_interval_minutes}
-              onChange={e => update("update_interval_minutes", e.target.value)} />
+          <Field label="Update interval (hours)" help="0 for manual updates.">
+            <Input name="update_interval_hours" type="number" min={0} max={720} step="any" required value={values.update_interval_hours}
+              onChange={e => update("update_interval_hours", e.target.value)} />
           </Field>
         </div>
         <p className="field-help mt-4">Automatic updates run while the local app is running.</p>
@@ -108,6 +117,7 @@ export function SettingsForm({ state, refresh, onSync }: {
           <Field label="Estimator API key" locked={locked("estimator_key")} help="Optional dedicated inference key. Otherwise uses the admin key. A separate service user keeps estimation costs out of people's spend.">
             {input("estimator_key", "password", saved.has_estimator_key ? "Saved. Leave blank to keep." : "sk-…")}
           </Field>
+          <Button type="button" variant="outline" className="w-fit" onClick={() => setResetOpen(true)}>Restart setup</Button>
         </div>
       </details>
       <div className="flex flex-wrap gap-2 py-5">
@@ -117,5 +127,15 @@ export function SettingsForm({ state, refresh, onSync }: {
       </div>
     </fieldset>
     {message && <p role={message.error ? "alert" : "status"} className={`text-sm pb-5 ${message.error ? "text-destructive" : "muted"}`}>{message.text}</p>}
+    <Dialog open={resetOpen} onOpenChange={setResetOpen}>
+      <DialogContent>
+        <DialogHeader><DialogTitle>Restart setup?</DialogTitle>
+          <DialogDescription>Clear reports and repository selections, then return to setup. Saved gateway and GitHub connections stay connected. Cached estimates can be reused.</DialogDescription></DialogHeader>
+        <DialogFooter>
+          <Button type="button" variant="outline" disabled={!!busy} onClick={() => setResetOpen(false)}>Cancel</Button>
+          <Button type="button" disabled={!!busy} onClick={() => void resetSetup()}>{busy === "reset" ? "Resetting…" : "Restart setup"}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   </form>;
 }

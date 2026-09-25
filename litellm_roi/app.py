@@ -126,6 +126,14 @@ def create_app(data_dir: Path | None = None, *, demo_only: bool = False) -> Fast
         manager.schedule(saved)
         return saved.public()
 
+    @app.post("/api/setup/reset")
+    async def reset_setup():
+        await manager.cancel()
+        config.save({"repos": []})
+        store.clear_reports()
+        manager.reset()
+        return {"ok": True}
+
     @app.post("/api/connections/test")
     async def test_connections(scope: Literal["all", "gateway", "github"] = "all"):
         settings = config.load()

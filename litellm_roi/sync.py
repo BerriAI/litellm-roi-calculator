@@ -1,5 +1,6 @@
 import asyncio
 from datetime import date, datetime, timedelta, timezone
+from time import monotonic
 
 from .config import Settings
 from .connectors import Gateway, GitHub, SourceError
@@ -27,12 +28,27 @@ class SyncManager:
         self.task: asyncio.Task | None = None
         self.state = IDLE_STATE.copy()
         self.next_update: datetime | None = None
+        self.started_at: float | None = None
+        self.estimates_started_at: float | None = None
+        self.finished_at: float | None = None
 
     def schedule(self, settings: Settings):
         self.next_update = utcnow() + timedelta(minutes=settings.update_interval_minutes) if settings.update_interval_minutes and settings.public()["ready"] and self.store.latest() else None
 
     def status(self):
-        return {**self.state, "next_update": self.next_update.isoformat() if self.next_update else None}
+        now = self.finished_at if self.finished_at is not None else monotonic()
+        elapsed = max(0, now - self.started_at) if self.started_at is not None else 0
+        remaining = None
+        # Wait for a batch of results; the first cached or unusually small PR
+        # alone is not a useful estimate of throughput for the full backfill.
+        if self.state["running"] and self.estimates_started_at is not None and self.state["done"] >= PR_CONCURRENCY:
+            remaining = max(0, (now - self.estimates_started_at) / self.state["done"] * (self.state["total"] - self.state["done"]))
+        return {**self.state, "next_update": self.next_update.isoformat() if self.next_update else None,
+            "elapsed_seconds": round(elapsed), "remaining_seconds": round(remaining) if remaining is not None else None}
+
+    def reset(self):
+        self.state = IDLE_STATE.copy()
+        self.next_update = self.started_at = self.estimates_started_at = self.finished_at = None
 
     def start(self, settings: Settings):
         if self.state["running"]:
@@ -41,6 +57,7 @@ class SyncManager:
             raise SourceError("Connect your gateway, choose repositories, and select an estimator model first.")
         self.state = {"running": True, "phase": "spend", "stage": "Reading gateway spend", "done": 0, "total": 0,
             "estimated": 0, "needs_attention": 0, "error": None}
+        self.started_at, self.estimates_started_at, self.finished_at = monotonic(), None, None
         self.task = asyncio.create_task(self.run(settings))
 
     async def cancel(self):
@@ -52,6 +69,8 @@ class SyncManager:
                 pass
             # Cancellation may arrive before run() has entered its try/finally.
             self.state.update(running=False, phase="cancelled", stage="Sync cancelled")
+            if self.finished_at is None:
+                self.finished_at = monotonic()
 
     async def run(self, settings: Settings):
         gateway = Gateway(settings)
@@ -66,6 +85,7 @@ class SyncManager:
                 self.state["stage"] = f"Reading {repo}"
                 queue.extend((repo, pr) for pr in await github.pulls(repo, start, end))
             self.state.update(phase="estimates", stage="Estimating pull requests", total=len(queue))
+            self.estimates_started_at = monotonic()
             pulls = [None] * len(queue)
             pending = iter(enumerate(queue))
 
@@ -108,6 +128,7 @@ class SyncManager:
             self.state.update(phase="error", stage="Sync failed", error="Unexpected source response. No partial report was saved. Check service compatibility and try again.")
         finally:
             self.state["running"] = False
+            self.finished_at = monotonic()
             self.schedule(settings)
             await asyncio.gather(gateway.close(), github.close(), estimator.close())
 

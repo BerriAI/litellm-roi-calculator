@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Github } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { api, errorMessage, type Settings } from "./api";
@@ -119,9 +120,10 @@ export function GitHubConnection({ values, saved, locked, update, saveConnection
     {connection && !connection.configured && <p className="field-help">GitHub will create a read-only App for this calculator. No keys or secrets to copy.</p>}
     {connection?.connected && !appMode && <Button type="button" variant="outline" className="w-fit" onClick={() => update("github_connection", "app")}>Use connected GitHub App</Button>}
     {appMode && connection && connection.installations.length > 1 && <Field label="GitHub account">
-      <select className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm" value={installation} onChange={e => setInstallation(Number(e.target.value))}>
-        {connection.installations.map(item => <option value={item.id} key={item.id}>{item.account}</option>)}
-      </select>
+      <Select items={connection.installations.map(item => ({ value: item.id, label: item.account }))} value={installation} onValueChange={value => { if (value !== null) setInstallation(value); }} disabled={busy}>
+        <SelectTrigger className="w-full" aria-label="GitHub account"><SelectValue /></SelectTrigger>
+        <SelectContent className="p-1">{connection.installations.map(item => <SelectItem value={item.id} key={item.id}>{item.account}</SelectItem>)}</SelectContent>
+      </Select>
     </Field>}
     {appMode && busy && !current && <p className="text-sm muted" role="status">Loading repositories…</p>}
     {current && <div className="repo-picker">

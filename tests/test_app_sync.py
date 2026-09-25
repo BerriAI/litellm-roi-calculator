@@ -20,6 +20,7 @@ from litellm_roi.sync import SyncManager, window
 def test_settings_persist_schedule_without_returning_secrets(tmp_path):
     with TestClient(create_app(tmp_path), base_url="http://localhost") as client:
         assert client.get("/api/state").json()["settings"]["backfill_days"] == 7
+        assert client.get("/api/state").json()["settings"]["update_interval_minutes"] == 1440
         response = client.put("/api/settings", json={"gateway_url": "https://gateway.example.com", "admin_key": "never-return-this",
             "github_token": "nor-this-token", "repos": ["org/repo"], "estimator_model": "test", "backfill_days": 90, "update_interval_minutes": 360})
         assert response.status_code == 200
@@ -33,6 +34,68 @@ def test_settings_persist_schedule_without_returning_secrets(tmp_path):
         assert client.get("/api/state").json()["status"]["next_update"] is None
     assert ConfigStore(tmp_path).load().backfill_days == 90
     assert (tmp_path / "config.json").stat().st_mode & 0o777 == 0o600
+
+
+def test_restart_setup_preserves_connections_and_cached_estimates(tmp_path):
+    app = create_app(tmp_path)
+    app.state.config.save({"gateway_url": "https://gateway.example.com", "admin_key": "saved-key",
+        "repos": ["org/fork"], "github_connection": "app", "estimator_model": "test"})
+    app.state.store.save_report({"mode": "live", "synced_at": datetime.now(timezone.utc).isoformat()})
+    app.state.store.save_estimate("cached-pr", {"hours": 3})
+    app_file = tmp_path / "github-app.json"
+    app_file.write_text('{"test": "connection preserved"}')
+    with TestClient(app, base_url="http://localhost") as client:
+        assert client.post("/api/setup/reset", json={}).status_code == 200
+        state = client.get("/api/state").json()
+        assert state["report"] is None
+        assert state["settings"]["repos"] == []
+        assert state["settings"]["has_admin_key"]
+        assert state["settings"]["github_connection"] == "app"
+        assert state["status"]["phase"] == "idle"
+        assert state["status"]["next_update"] is None
+        assert app.state.config.load().admin_key == "saved-key"
+        assert app.state.store.estimate("cached-pr") == {"hours": 3}
+        assert app_file.read_text() == '{"test": "connection preserved"}'
+
+
+def test_backfill_time_estimate_uses_processing_rate_and_stops_on_completion(tmp_path, monkeypatch):
+    manager = SyncManager(Store(tmp_path))
+    manager.started_at = 100
+    manager.estimates_started_at = 130
+    manager.state.update(running=True, phase="estimates", total=12, done=1)
+    monkeypatch.setattr(sync_module, "monotonic", lambda: 160)
+    assert manager.status()["elapsed_seconds"] == 60
+    assert manager.status()["remaining_seconds"] is None
+    manager.state["done"] = 3
+    assert manager.status()["remaining_seconds"] == 90
+    manager.state.update(running=False, phase="complete", done=12)
+    manager.finished_at = 250
+    monkeypatch.setattr(sync_module, "monotonic", lambda: 1000)
+    assert manager.status()["elapsed_seconds"] == 150
+    assert manager.status()["remaining_seconds"] is None
+    manager.reset()
+    assert manager.status()["elapsed_seconds"] == 0
+
+
+@pytest.mark.asyncio
+async def test_restart_setup_waits_for_running_sync_to_stop(tmp_path):
+    app = create_app(tmp_path)
+    manager = app.state.manager
+
+    async def in_flight_sync():
+        try:
+            await asyncio.Event().wait()
+        finally:
+            app.state.store.save_report({"mode": "live"})
+
+    manager.state.update(running=True, phase="estimates")
+    manager.task = asyncio.create_task(in_flight_sync())
+    await asyncio.sleep(0)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://localhost") as client:
+        assert (await client.post("/api/setup/reset", json={})).status_code == 200
+    assert manager.task.done()
+    assert app.state.store.latest() is None
+    assert manager.status()["phase"] == "idle"
 
 
 def test_large_repository_selection_is_saved_and_deduplicated(tmp_path):

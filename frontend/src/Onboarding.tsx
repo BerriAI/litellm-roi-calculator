@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ArrowRight, Check, Circle, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { TextPicker } from "./TextPicker";
 import { Textarea } from "@/components/ui/textarea";
 import { api, errorMessage, type AppState, type Settings } from "./api";
 import { Field, formValues, settingsUpdate, type FormValues } from "./configuration";
@@ -12,7 +13,7 @@ const steps = ["Gateway", "Repositories", "Estimator & sync"];
 const stepFields = [
   ["gateway_url", "admin_key"],
   [...githubConnectionFields, "repos"],
-  ["estimator_model", "estimator_prompt", "estimator_key", "backfill_days", "update_interval_minutes"],
+  ["estimator_model", "estimator_prompt", "estimator_key", "backfill_days", "update_interval_hours"],
 ];
 
 export function Onboarding({ state, refresh, connectionError }: {
@@ -121,16 +122,15 @@ export function Onboarding({ state, refresh, connectionError }: {
             </> : step === 1 ? <GitHubConnection values={values} saved={saved} locked={locked} update={update}
               saveConnection={() => save(githubConnectionFields)} onBusy={setBusy} /> : <>
               <Field label="Estimator model" locked={locked("estimator_model")}>
-                <Input name="estimator_model" required list="setup-models" value={values.estimator_model} disabled={locked("estimator_model")}
-                  onChange={e => update("estimator_model", e.target.value)} placeholder="Choose or enter a model from your gateway" />
-                <datalist id="setup-models">{models.map(model => <option key={model} value={model} />)}</datalist>
+                <TextPicker items={models} name="estimator_model" required value={values.estimator_model} disabled={locked("estimator_model")}
+                  onChange={value => update("estimator_model", value)} placeholder="Choose or enter a model from your gateway" />
               </Field>
               {modelsLoading && <p className="field-help" role="status">Loading models from your gateway…</p>}
               {modelsError && <p className="field-help">Could not load models. Enter a model name or <button type="button" className="underline" onClick={() => setModelRetry(n => n + 1)}>retry</button>.</p>}
               <p className="field-help">We recommend a small model, such as GPT Luna or Claude Haiku.</p>
               <div className="grid gap-5 sm:grid-cols-2">
                 <Field label="Backfill (days)" help="Rolling history window, including today."><Input name="backfill_days" type="number" min={1} max={3650} required value={values.backfill_days} onChange={e => update("backfill_days", e.target.value)} /></Field>
-                <Field label="Update interval (minutes)" help="0 for manual, or at least 5 minutes."><Input name="update_interval_minutes" type="number" min={0} max={43200} required value={values.update_interval_minutes} onChange={e => update("update_interval_minutes", e.target.value)} /></Field>
+                <Field label="Update interval (hours)" help="0 for manual updates."><Input name="update_interval_hours" type="number" min={0} max={720} step="any" required value={values.update_interval_hours} onChange={e => update("update_interval_hours", e.target.value)} /></Field>
               </div>
               <details className="details"><summary>Advanced options</summary><div className="form-fields pt-3">
                 <Field label="Prompt" help="Temperature is fixed at 0.">

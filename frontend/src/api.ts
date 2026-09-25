@@ -92,6 +92,8 @@ export interface AppState {
     needs_attention: number;
     next_update: string | null;
     error: string | null;
+    elapsed_seconds?: number;
+    remaining_seconds?: number | null;
   };
 }
 

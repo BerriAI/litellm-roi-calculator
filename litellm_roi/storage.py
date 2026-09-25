@@ -39,3 +39,7 @@ class Store:
         if not row:
             return None
         return {**json.loads(row[1]), "id": row[0]}
+
+    def clear_reports(self):
+        with self.connection() as conn:
+            conn.execute("DELETE FROM reports WHERE mode='live'")

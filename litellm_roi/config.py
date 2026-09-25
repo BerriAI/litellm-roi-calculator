@@ -38,7 +38,7 @@ class Settings(BaseModel):
     estimator_prompt: str = DEFAULT_PROMPT
     identity_map: dict[str, str] = Field(default_factory=dict)
     backfill_days: int = Field(default=7, ge=1, le=3650)
-    update_interval_minutes: int = Field(default=60, ge=0, le=43200)
+    update_interval_minutes: int = Field(default=1440, ge=0, le=43200)
 
     @field_validator("update_interval_minutes")
     @classmethod

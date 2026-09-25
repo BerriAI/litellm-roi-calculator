@@ -9,6 +9,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { SettingsForm } from "./SettingsForm";
+import { TextPicker } from "./TextPicker";
 import { Onboarding } from "./Onboarding";
 import { SyncProgress } from "./SyncProgress";
 import { api, money, number, date, safeURL, errorMessage, type AppState, type Pull, type Report } from "./api";
@@ -137,7 +138,7 @@ export function App() {
         <People report={report} onMatch={(login, email) => { setMatchError(""); setMatching({ login, email }); }} />}
       {report && page !== "settings" && !demo && <p className="text-sm muted">
         Last synced {new Date(report.synced_at).toLocaleString()}
-        {` · ${state.settings.update_interval_minutes ? `Updates every ${state.settings.update_interval_minutes} minutes` : "Manual updates"}`}
+        {` · ${state.settings.update_interval_minutes ? `Updates every ${number(state.settings.update_interval_minutes / 60)} ${state.settings.update_interval_minutes === 60 ? "hour" : "hours"}` : "Manual updates"}`}
       </p>}
     </div></main>
     <Dialog open={demoHelp} onOpenChange={setDemoHelp}>
@@ -173,9 +174,9 @@ export function App() {
         <DialogHeader><DialogTitle>Match email</DialogTitle><DialogDescription>Link {matching?.login} to their gateway email.</DialogDescription></DialogHeader>
         {demo ? <><p>Set up your data to edit email matches.</p><Button onClick={() => navigate("settings")}>Set up your data</Button></> :
           <form onSubmit={e => { e.preventDefault(); void saveMatch(); }} className="space-y-5">
-            <label className="field"><span>Gateway email</span><Input type="email" required value={matching?.email || ""}
-              onChange={e => setMatching(current => current && { ...current, email: e.target.value })} placeholder="name@company.com" list="gateway-emails" /></label>
-            <datalist id="gateway-emails">{report?.people.filter(p => p.email && p.spend !== null).map(p => <option key={p.id} value={p.email} />)}</datalist>
+            <label className="field"><span>Gateway email</span><TextPicker type="email" required value={matching?.email || ""}
+              items={report?.people.filter(p => p.email && p.spend !== null).map(p => p.email) || []}
+              onChange={email => setMatching(current => current && { ...current, email })} placeholder="name@company.com" /></label>
             {matchError && <p role="alert" className="text-sm text-destructive">{matchError}</p>}
             <DialogFooter>
               {matching && state.settings.identity_map[matching.login.toLowerCase()] && <Button type="button" variant="outline" disabled={busy || state.status.running} onClick={() => void saveMatch(true)}>Use automatic match</Button>}
@@ -202,7 +203,7 @@ function Overview({ report, onSelect, onPeople }: { report: Report; onSelect: (p
             <p className="text-sm muted">{m.cost_per_hour == null ? "Not enough matched data to calculate a rate." : `${m.cohort_people} matched ${m.cohort_people === 1 ? "person" : "people"} with complete estimates`}</p>
           </div>
           <dl className="summary-inputs">
-            <div><dt>Gateway spend</dt><dd>{money(m.matched_spend)}</dd></div>
+            <div><dt>Matched gateway spend</dt><dd>{money(m.matched_spend)}</dd></div>
             <div><dt>Estimated engineering hours{report.effort_basis === "without_ai" && " without AI"}</dt><dd>{number(m.output_hours)} <span className="text-base font-normal muted">hrs</span></dd></div>
           </dl>
         </CardContent>

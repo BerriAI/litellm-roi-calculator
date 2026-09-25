@@ -1,6 +1,8 @@
 # LiteLLM UI
 
-The UI primitives in `frontend/src/components`, `frontend/src/lib/cva.config.ts`, theme tokens in `frontend/src/litellm-theme.css`, `frontend/public/litellm-logo.jpg`, and `frontend/public/litellm-icon.jpg` are from [BerriAI/litellm](https://github.com/BerriAI/litellm/tree/d33d36ce862459e144e814dcdab049a8bde3b06f), revision `d33d36ce862459e144e814dcdab049a8bde3b06f`. Component files and logos are copied unchanged from that revision. The theme includes the light palette, token mappings, and primitive state variants from its dashboard stylesheet.
+Except for the additions noted below, the UI primitives in `frontend/src/components`, `frontend/src/lib/cva.config.ts`, theme tokens in `frontend/src/litellm-theme.css`, `frontend/public/litellm-logo.jpg`, and `frontend/public/litellm-icon.jpg` are from [BerriAI/litellm](https://github.com/BerriAI/litellm/tree/d33d36ce862459e144e814dcdab049a8bde3b06f), revision `d33d36ce862459e144e814dcdab049a8bde3b06f`. Component files and logos are copied unchanged from that revision. The theme includes the light palette, token mappings, and primitive state variants from its dashboard stylesheet.
+
+The `select.tsx`, `combobox.tsx`, and `input-group.tsx` primitives are copied unchanged from [BerriAI/litellm](https://github.com/BerriAI/litellm/tree/218b3280d160ae3362d5709e2192984b3a7ee4ca), revision `218b3280d160ae3362d5709e2192984b3a7ee4ca`.
 
 Portions of this software are licensed as follows:
 
