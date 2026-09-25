@@ -3,6 +3,7 @@ import os
 import re
 import tempfile
 from pathlib import Path
+from typing import Literal
 from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field, ValidationInfo, field_validator
@@ -25,6 +26,7 @@ class Settings(BaseModel):
     admin_key: str = ""
     estimator_key: str = ""
     github_token: str = ""
+    github_connection: Literal["app", "token"] = "token"
     github_api_url: str = "https://api.github.com"
     repos: list[str] = Field(default_factory=list)
     estimator_model: str = ""

@@ -1,6 +1,7 @@
 export interface Settings {
   gateway_url: string;
   github_api_url: string;
+  github_connection: "app" | "token";
   repos: string[];
   estimator_model: string;
   estimator_prompt: string;

@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: litellm-roi-calculator
+    runtime: python
+    plan: starter
+    region: oregon
+    numInstances: 1
+    buildCommand: pip install .
+    startCommand: litellm-roi --host 0.0.0.0 --no-browser
+    healthCheckPath: /health
+    autoDeployTrigger: checksPass
+    disk:
+      name: roi-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.11
+      - key: ROI_DATA_DIR
+        value: /var/data/roi

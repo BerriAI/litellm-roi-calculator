@@ -44,7 +44,7 @@ Open http://localhost:8787. Configuration and reports persist in the `roi-data` 
 A fresh workspace opens with **Set up your data**, followed by a guided setup. There is no automatic sample-data fallback. Demo data is available only with `--demo` or `?demo=1`.
 
 1. **Gateway:** your LiteLLM proxy URL and an admin or read-only admin key with access to `/user/list` and `/user/daily/activity`. Choose a dedicated inference key for estimates when using a read-only admin key.
-2. **Repositories:** add a GitHub token, optionally enter your organization, and click **Browse repos**. Select public, private, or internal repositories, or enter `owner/repo` names or repository URLs. Setup checks repository and pull-request access before continuing.
+2. **Repositories:** click **Connect GitHub**, approve read-only access on GitHub, and select repositories. The first connection includes a prefilled GitHub App registration for your copy of the calculator. Private and internal repos are supported, subject to your organization’s approval. Manual tokens and GitHub Enterprise configuration are under **Advanced**.
 3. **Estimator:** select or enter a model deployment on your gateway. The model must accept `temperature: 0` and JSON-object output. Edit the default prompt if desired.
 4. **Backfill and updates:** choose a rolling history window (1–3,650 days, default 30) and an update interval (default 60 minutes). Set the interval to **0 for manual only**, or at least 5 minutes for automatic updates. Both controls are available during setup and in Settings afterward.
 5. Click **Start backfill**. Progress shows gateway import, repository import, and the number of PRs processed and estimated. The dashboard opens when the first report is ready. You can reload the page during backfill, cancel it, or retry after an error.
@@ -56,10 +56,18 @@ Automatic updates begin only after the first successful backfill and run while t
 - **Private and internal repos:** use a company-approved fine-grained personal access token with read access to **Pull requests, Contents, and Metadata** on the repositories you select. Set the organization as the token’s resource owner. If your company uses classic tokens, private repo access requires the `repo` scope. The app only reads GitHub data.
 - **Organization access:** approve the token if your organization requires it. For classic tokens in SAML SSO organizations, authorize the token for that organization. Organization policies and your account’s repository access still apply; this connection does not bypass them.
 - **Repository picker:** leave Organization blank to list repositories accessible to the token, or enter an organization to browse its repositories. Use the filter and Load more for larger lists. Select up to 50 repositories per workspace. The same picker is available in Settings.
-- **GitHub Enterprise Server:** expand **GitHub Enterprise** and enter your API URL, such as `https://github.company.com/api/v3`. Enterprise Cloud with data residency can use `https://api.company.ghe.com`. Use a token issued for that server. Full repository URLs must match the configured server; `owner/repo` works for either.
+- **GitHub Enterprise Server:** expand **Advanced connection settings** and enter your API URL, such as `https://github.company.com/api/v3`. Enterprise Cloud with data residency can use `https://api.company.ghe.com`. Use a token issued for that server. Full repository URLs must match the configured server; `owner/repo` works for either.
 - **Company networks:** run the app on a machine with access to the gateway and GitHub server, including your VPN if needed. For a company certificate authority, configure HTTPX’s `SSL_CERT_FILE` or `SSL_CERT_DIR`; TLS verification stays enabled.
 
-Public repositories can be entered manually without a token, subject to GitHub’s lower anonymous rate limits. This version uses tokens, not a GitHub App installation or OAuth sign-in. GitHub email visibility can be restricted in company accounts; use **People → Match email** when an automatic match is unavailable.
+Public repositories can be entered manually without a token, subject to GitHub’s lower anonymous rate limits. GitHub email visibility can be restricted in company accounts; use **People → Match email** when an automatic match is unavailable.
+
+### GitHub connection
+
+**Connect GitHub** registers a GitHub App for this deployment, then opens GitHub’s account and repository access screen. You own the App. It requests only read access to Contents, Pull requests, and Metadata; it does not subscribe to webhooks or modify code. GitHub may ask you to confirm your account before creating the App. Organization owners may need to approve installation.
+
+After installation, GitHub asks you to authorize the connection so the calculator can verify that the installation belongs to an account you can access. The resulting user token is used only for that check and is not saved. Background updates use short-lived installation tokens that renew automatically. Each connected installation shares its approved repositories with this calculator workspace. Click **Manage GitHub access** to connect another account or change available repos, then select which repos to measure. Up to 50 repositories can be selected across connected accounts.
+
+This is a repository connection, **not a login gate for the dashboard**. No Google OAuth or built-in SSO is required. To use an existing GitHub App instead, configure `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET`, and `GITHUB_APP_PRIVATE_KEY` on the server. Set its callback URL to `<your-origin>/github/callback`, setup URL to `<your-origin>/github/installed`, disable webhooks and OAuth-on-install, and grant the read permissions above. The guided connection supports github.com; Enterprise servers use the manual connection under Advanced.
 
 ### Optional environment configuration
 
@@ -75,6 +83,7 @@ Copy `.env.example` to `.env` and uncomment the fields you want to manage throug
 | `GITHUB_REPOS` | Comma-separated repository names |
 | `GITHUB_API_URL` | Optional Enterprise API URL, e.g. `https://github.example.com/api/v3` |
 | `ROI_DATA_DIR` | Data location; defaults to `~/.litellm-roi` |
+| `ROI_PUBLIC_URL` | HTTPS origin when hosted; Render supplies `RENDER_EXTERNAL_URL` automatically |
 
 The default prompt is intentionally simple and contains no hour anchors or examples:
 
@@ -114,11 +123,19 @@ In **People**, click **Match email** to connect a GitHub username to a gateway e
 
 The app reads GitHub repositories and gateway accounting data. It writes only local configuration/reports and makes inference calls to your chosen gateway. No data is sent to a separate analytics service.
 
-**PR titles, descriptions, and code diffs are sent to your configured estimator model through the gateway.** Your gateway/provider's handling applies. Tokens are never returned to the browser. Local `config.json` stores credentials in plaintext with owner-only permissions (`0600`); protect the machine and data-directory backups. SQLite stores report metadata, email matches, model reasoning, and cached estimates. Raw diffs are not persisted by this application.
+**PR titles, descriptions, and code diffs are sent to your configured estimator model through the gateway.** Your gateway/provider's handling applies. Tokens are never returned to the browser. Local `config.json` and `github-app.json` store credentials in plaintext with owner-only permissions (`0600`); protect the machine and data-directory backups. GitHub connection state uses a short-lived HttpOnly, SameSite cookie (Secure when hosted); it is not a dashboard login session. SQLite stores report metadata, email matches, model reasoning, and cached estimates. Raw diffs are not persisted by this application.
 
-The app binds to `127.0.0.1` by default, rejects non-local Host headers and cross-origin API requests, and uses no CDN assets. `--host 0.0.0.0` supports Docker; keep its published port bound to loopback. This is a single-user local app, not a public multi-tenant service.
+The app binds to `127.0.0.1` by default and uses no CDN assets. Locally it rejects non-local Host headers; hosted deployments accept only their configured public origin and reject cross-origin API requests. `--host 0.0.0.0` supports Docker or hosting. This is one shared workspace, not a multi-tenant service.
 
 There is no built-in password, login, or user authorization. The localhost checks are not a substitute for authentication. If you share the app through a server or tunnel, protect the entire app and its API with an authentication layer such as your company's SSO. Anyone with access to the unprotected app can view reports, change settings, and trigger syncs using the configured credentials. Publishing this repository does not host your local dashboard or its data.
+
+## Host on Render
+
+[Deploy to Render](https://render.com/deploy?repo=https://github.com/BerriAI/litellm-roi-calculator) using the included `render.yaml`. It runs one Python service with a 1 GB persistent disk for settings, GitHub App credentials, and SQLite reports. No frontend build or external database is needed. Render supplies the public URL and port automatically. The smallest paid service and disk currently cost approximately **$7.25/month**, before other usage.
+
+Open the service URL and go through setup. The deployment starts empty and makes no inference calls until you start the initial backfill. Keep one instance while using SQLite. Back up the disk; deleting it deletes the workspace.
+
+There is intentionally **no built-in dashboard login**. Put your hosting provider’s access controls or an SSO proxy in front of the entire site and API when sharing company data. GitHub connection callbacks must return to the same HTTPS origin in `ROI_PUBLIC_URL`; set this explicitly if using a custom domain or access proxy. Anyone who can reach an unprotected deployment can use its shared workspace.
 
 ## Development
 

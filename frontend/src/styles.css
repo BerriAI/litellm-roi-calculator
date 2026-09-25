@@ -85,23 +85,33 @@
 
 @layer components {
   .onboarding { min-height: 100dvh; }
-  .onboarding-brand { padding: 24px 32px; border-bottom: 1px solid var(--border); }
-  .onboarding-content { max-width: 624px; margin: 56px auto 80px; padding: 0 24px; }
-  .onboarding-content h1 { font-size: 28px; font-weight: 600; letter-spacing: -.035em; line-height: 1.3; outline: none; }
-  .onboarding-description { margin: 12px 0 30px; font-size: 15px; line-height: 1.7; color: var(--muted-foreground); }
-  .onboarding-welcome { margin-top: 88px; }
-  .welcome-steps { display: grid; gap: 22px; margin: 36px 0; font-size: 15px; }
+  .onboarding-brand { padding: 20px 32px; border-bottom: 1px solid var(--border); }
+  .onboarding-content { max-width: 704px; margin: 48px auto 64px; padding: 0 24px; }
+  .setup-panel { border: 1px solid var(--border); border-radius: 10px; padding: 32px; background: var(--background); }
+  .onboarding-content h1 { font-size: 24px; font-weight: 600; letter-spacing: -.03em; line-height: 1.35; outline: none; }
+  .onboarding-description { margin: 8px 0 28px; font-size: 14px; line-height: 1.65; color: var(--muted-foreground); }
+  .onboarding-welcome { margin-top: 64px; }
+  .setup-footnote { margin-top: 24px; font-size: 12px; line-height: 1.6; color: var(--muted-foreground); }
+  .welcome-steps { display: grid; gap: 20px; margin: 28px 0 32px; font-size: 14px; }
   .welcome-steps li { display: flex; align-items: center; gap: 14px; }
   .welcome-steps li > span { display: grid; place-items: center; width: 28px; height: 28px; border: 1px solid var(--border); border-radius: 50%; font-size: 12px; color: var(--muted-foreground); }
-  .setup-steps { display: flex; justify-content: space-between; gap: 12px; padding-bottom: 28px; margin-bottom: 32px; border-bottom: 1px solid var(--border); font-size: 13px; color: var(--muted-foreground); }
+  .setup-steps { display: flex; justify-content: space-between; gap: 16px; padding: 0 8px; margin-bottom: 24px; font-size: 13px; color: var(--muted-foreground); }
   .setup-steps li { display: flex; align-items: center; gap: 8px; }
   .setup-steps li > span { width: 23px; height: 23px; flex-shrink: 0; display: grid; place-items: center; border: 1px solid var(--border); border-radius: 50%; font-size: 11px; }
   .setup-steps li[aria-current] { color: var(--foreground); font-weight: 500; }
   .setup-steps li[aria-current] > span { background: var(--primary); border-color: var(--primary); color: var(--primary-foreground); }
-  .onboarding-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
-  .repo-picker { display: grid; gap: 10px; }
+  .onboarding-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 10px; padding-top: 24px; border-top: 1px solid var(--border); }
+  .onboarding .form-fields { gap: 24px; }
+  .github-connect { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 20px; padding: 20px; border: 1px solid var(--border); border-radius: 8px; }
+  .github-connect-identity { display: flex; align-items: center; gap: 12px; }
+  .github-connect-icon { display: grid; place-items: center; width: 40px; height: 40px; background: var(--muted); border-radius: 8px; flex-shrink: 0; }
+  .github-connect-icon svg { width: 22px; height: 22px; }
+  .github-advanced { font-size: 13px; }
+  .github-advanced summary { color: var(--muted-foreground); }
+  .github-advanced[open] summary { color: var(--foreground); }
+  .repo-picker { display: grid; gap: 12px; }
   .repo-list { max-height: 248px; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; }
-  .repo-choice { display: flex; gap: 10px; align-items: center; padding: 12px; font-size: 13px; cursor: pointer; }
+  .repo-choice { display: flex; gap: 12px; align-items: center; padding: 14px; font-size: 13px; cursor: pointer; }
   .repo-choice + .repo-choice { border-top: 1px solid var(--border); }
   .repo-choice:has(:checked) { background: var(--muted); }
   .repo-choice input { width: 16px; height: 16px; flex-shrink: 0; accent-color: var(--primary); }
@@ -117,9 +127,12 @@
 }
 @media (max-width: 480px) {
   .onboarding-brand { padding: 20px 24px; }
-  .onboarding-content { margin-top: 36px; }
-  .onboarding-content h1 { font-size: 25px; }
-  .setup-steps { font-size: 11px; gap: 8px; }
-  .setup-steps li { flex-direction: column; align-items: flex-start; gap: 8px; }
+  .onboarding-content { margin-top: 28px; padding: 0 16px; }
+  .setup-panel { padding: 24px 20px; }
+  .onboarding-content h1 { font-size: 22px; }
+  .setup-steps { font-size: 11px; gap: 8px; padding: 0 4px; }
+  .setup-steps li { flex-direction: column; align-items: center; gap: 8px; }
+  .github-connect { padding: 16px; gap: 16px; }
+  .github-connect > button { width: 100%; }
 }
 @media (prefers-reduced-motion: reduce) { .animate-spin { animation: none; } }

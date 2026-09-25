@@ -20,8 +20,9 @@ def window(settings: Settings) -> tuple[date, date]:
 
 
 class SyncManager:
-    def __init__(self, store: Store):
+    def __init__(self, store: Store, github_factory=None):
         self.store = store
+        self.github_factory = github_factory
         self.task: asyncio.Task | None = None
         self.state = IDLE_STATE.copy()
         self.next_update: datetime | None = None
@@ -52,7 +53,9 @@ class SyncManager:
             self.state.update(running=False, phase="cancelled", stage="Sync cancelled")
 
     async def run(self, settings: Settings):
-        gateway, github, estimator = Gateway(settings), GitHub(settings), Estimator(settings, self.store)
+        gateway = Gateway(settings)
+        github = self.github_factory(settings) if self.github_factory and settings.github_connection == "app" else GitHub(settings)
+        estimator = Estimator(settings, self.store)
         try:
             start, end = window(settings)
             spend, _ = await gateway.spend(start, end)

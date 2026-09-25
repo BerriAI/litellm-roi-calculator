@@ -18,8 +18,8 @@ export function Onboarding({ state, refresh, connectionError }: {
   state: AppState; refresh: () => Promise<void>; connectionError: string;
 }) {
   const [screen, setScreen] = useState<"welcome" | "setup" | "progress">(
-    state.status.running || ["error", "cancelled"].includes(state.status.phase) ? "progress" : "welcome");
-  const [step, setStep] = useState(state.settings.repos.length ? 2 : state.settings.gateway_url && state.settings.has_admin_key ? 1 : 0);
+    state.status.running || ["error", "cancelled"].includes(state.status.phase) ? "progress" : new URLSearchParams(location.search).has("github") ? "setup" : "welcome");
+  const [step, setStep] = useState(new URLSearchParams(location.search).has("github") ? 1 : state.settings.repos.length ? 2 : state.settings.gateway_url && state.settings.has_admin_key ? 1 : 0);
   const [values, setValues] = useState(() => formValues(state.settings));
   const [saved, setSaved] = useState(state.settings);
   const [models, setModels] = useState<string[]>([]);
@@ -84,13 +84,13 @@ export function Onboarding({ state, refresh, connectionError }: {
       <span className="flex flex-col gap-0.5"><span className="font-semibold tracking-tight">LiteLLM</span><span className="text-xs muted">ROI Calculator</span></span>
     </a></header>
     <main className={`onboarding-content ${screen === "welcome" && !progress ? "onboarding-welcome" : ""}`}>
-      {!progress && screen === "welcome" ? <>
+      {!progress && screen === "welcome" ? <section className="setup-panel">
         <h1 ref={heading} tabIndex={-1}>Set up your data</h1>
         <p className="onboarding-description">Connect your LiteLLM gateway and GitHub repositories to compare AI spend with estimated engineering hours.</p>
         <ol className="welcome-steps">{["Connect your gateway", "Choose your repositories", "Choose an estimator and start backfill"].map((label, i) => <li key={label}><span>{i + 1}</span>{label}</li>)}</ol>
         <Button onClick={() => setScreen("setup")}>{hasSetup ? "Continue setup" : "Get started"}<ArrowRight /></Button>
-        <p className="mt-6 text-sm muted">Engineering hours are model estimates, not actual time spent.</p>
-      </> : progress ? <>
+        <p className="setup-footnote">Engineering hours are model estimates, not actual time spent.</p>
+      </section> : progress ? <section className="setup-panel">
         <h1 ref={heading} tabIndex={-1}>{state.status.running ? "Preparing your dashboard" : state.status.phase === "cancelled" ? "Backfill cancelled" : state.status.error ? "Backfill needs attention" : "Starting backfill"}</h1>
         <p className="onboarding-description">Importing the last {saved.backfill_days} days from your gateway and {saved.repos.length} {saved.repos.length === 1 ? "repository" : "repositories"}.</p>
         <ol className="backfill-stages" aria-label="Backfill progress">{["Import gateway spend", "Import merged pull requests", "Estimate engineering hours"].map((label, i) => <li key={label} className={activePhase === i ? "active" : ""}>
@@ -111,11 +111,12 @@ export function Onboarding({ state, refresh, connectionError }: {
             <Button variant="outline" disabled={busy} onClick={() => { setScreen("setup"); setStep(0); setError(""); }}>Edit setup</Button>
           </>}
         </div>
-        <p className="mt-5 text-sm muted">The dashboard opens when backfill finishes. Keep the local app running; you can reload this page.</p>
-      </> : <>
+        <p className="setup-footnote">The dashboard opens when backfill finishes. Keep the app running; you can reload this page.</p>
+      </section> : <>
         <ol className="setup-steps" aria-label="Setup steps">{steps.map((label, i) => <li key={label} aria-current={step === i ? "step" : undefined}><span>{i < step ? <Check className="size-3.5" /> : i + 1}</span>{label}</li>)}</ol>
+        <section className="setup-panel">
         <h1 ref={heading} tabIndex={-1}>{["Connect your gateway", "Choose your repositories", "Estimator & sync"][step]}</h1>
-        <p className="onboarding-description">{["Read user spend from your LiteLLM gateway.", "Connect GitHub or your company’s GitHub Enterprise server.", "Choose how to estimate engineering hours and keep your report up to date."][step]}</p>
+        <p className="onboarding-description">{["Read user spend from your LiteLLM gateway.", "Select the repositories you want to measure.", "Choose a model and how often to update your report."][step]}</p>
         <form onSubmit={e => void advance(e)}>
           <fieldset disabled={busy} className="form-fields">
             {step === 0 ? <>
@@ -141,14 +142,15 @@ export function Onboarding({ state, refresh, connectionError }: {
               <details className="details"><summary>Separate estimator key (optional)</summary><div className="pt-2"><Field label="Estimator API key" locked={locked("estimator_key")} help="Required if your admin key cannot make model calls. A separate service user keeps estimation costs out of people’s spend.">
                 {input("estimator_key", "password", saved.has_estimator_key ? "Saved. Leave blank to keep." : "Uses your admin key")}
               </Field></div></details>
-              <p className="field-help">Automatic updates begin after the first backfill and run while the local app is running. You can change these options in Settings.</p>
+              <p className="field-help">Automatic updates begin after the first backfill and run while the app is running. You can change these options in Settings.</p>
             </>}
             <div className="onboarding-actions justify-between">
-              <Button type="button" variant="outline" onClick={() => { if (step === 0) setScreen("welcome"); else setStep(step - 1); setError(""); }}>Back</Button>
-              <Button type="submit">{busy ? <><Loader2 className="animate-spin" />{step < 2 ? "Checking…" : "Starting…"}</> : step < 2 ? <>Continue<ArrowRight /></> : "Start backfill"}</Button>
+              <Button type="button" variant="ghost" className="px-4" onClick={() => { if (step === 0) setScreen("welcome"); else setStep(step - 1); setError(""); }}>Back</Button>
+              <Button type="submit" className="px-4" disabled={step === 1 && !values.repos.trim()}>{busy ? <><Loader2 className="animate-spin" />{step < 2 ? "Checking…" : "Starting…"}</> : step < 2 ? <>Continue<ArrowRight /></> : "Start backfill"}</Button>
             </div>
           </fieldset>
         </form>
+        </section>
       </>}
       {(error || connectionError) && <p role="alert" className="text-sm text-destructive mt-5">{error || connectionError}</p>}
     </main>

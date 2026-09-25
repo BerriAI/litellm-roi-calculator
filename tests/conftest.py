@@ -1,11 +1,12 @@
 import pytest
 
 from litellm_roi.config import ENV_FIELDS, Settings
+from litellm_roi.github_app import APP_ENV
 
 
 @pytest.fixture(autouse=True)
 def isolate_environment(monkeypatch):
-    for key in [*ENV_FIELDS.values(), "GITHUB_REPOS", "ROI_DATA_DIR"]:
+    for key in [*ENV_FIELDS.values(), *APP_ENV.values(), "GITHUB_REPOS", "ROI_DATA_DIR", "ROI_PUBLIC_URL", "RENDER_EXTERNAL_URL", "PORT"]:
         monkeypatch.delenv(key, raising=False)
 
 

@@ -130,11 +130,21 @@ class Gateway:
 
 
 class GitHub:
-    def __init__(self, settings: Settings, transport=None):
+    def __init__(self, settings: Settings, transport=None, token_provider=None):
         headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
-        if settings.github_token:
+        if settings.github_token and token_provider is None:
             headers["Authorization"] = f"Bearer {settings.github_token}"
-        self.client = httpx.AsyncClient(base_url=settings.github_api_url + "/", headers=headers, timeout=45, transport=transport)
+
+        async def authorize(req):
+            if token_provider is not None:
+                if req.url.host != "api.github.com":
+                    raise SourceError("GitHub App connections use github.com. Use Advanced for Enterprise Server.")
+                parts = req.url.path.strip("/").split("/")
+                if len(parts) >= 3 and parts[0] == "repos":
+                    req.headers["Authorization"] = "Bearer " + await token_provider("/".join(parts[1:3]))
+
+        self.client = httpx.AsyncClient(base_url=settings.github_api_url + "/", headers=headers, timeout=45,
+            transport=transport, event_hooks={"request": [authorize]})
         self.profiles = {}
 
     async def close(self):

@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 def main():
     load_dotenv()
     parser = argparse.ArgumentParser(description="Your local LiteLLM engineering ROI dashboard")
-    parser.add_argument("--port", type=int, default=8787)
+    parser.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8787")))
     parser.add_argument("--host", default="127.0.0.1", choices=["127.0.0.1", "0.0.0.0"])
     parser.add_argument("--data-dir", type=Path)
     parser.add_argument("--no-browser", action="store_true")

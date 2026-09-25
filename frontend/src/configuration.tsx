@@ -3,13 +3,13 @@ import type { Settings } from "./api";
 
 export type FormValues = {
   gateway_url: string; admin_key: string; estimator_key: string; github_token: string;
-  github_api_url: string; repos: string; estimator_model: string; estimator_prompt: string;
+  github_api_url: string; github_connection: string; repos: string; estimator_model: string; estimator_prompt: string;
   backfill_days: string; update_interval_minutes: string;
 };
 
 export const formValues = (s: Settings): FormValues => ({
   gateway_url: s.gateway_url, admin_key: "", estimator_key: "", github_token: "",
-  github_api_url: s.github_api_url, repos: s.repos.join("\n"), estimator_model: s.estimator_model,
+  github_api_url: s.github_api_url, github_connection: s.github_connection, repos: s.repos.join("\n"), estimator_model: s.estimator_model,
   estimator_prompt: s.estimator_prompt, backfill_days: String(s.backfill_days),
   update_interval_minutes: String(s.update_interval_minutes),
 });

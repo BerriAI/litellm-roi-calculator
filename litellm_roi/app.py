@@ -5,6 +5,7 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlsplit
 
 from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
@@ -14,6 +15,7 @@ from pydantic import ValidationError
 from .analytics import summarize
 from .config import DEFAULT_PROMPT, ConfigStore, Settings, environment_overrides
 from .connectors import Gateway, GitHub, SourceError, request
+from .github_app import GitHubApp
 from .storage import Store
 from .sync import IDLE_STATE, SyncManager, demo_report, utcnow
 
@@ -21,12 +23,25 @@ ASSETS = Path(__file__).parent / "static"
 
 
 def create_app(data_dir: Path | None = None, *, demo_only: bool = False) -> FastAPI:
+    public_url = "" if demo_only else (os.environ.get("ROI_PUBLIC_URL") or os.environ.get("RENDER_EXTERNAL_URL") or "").strip().rstrip("/")
+    if public_url:
+        parsed = urlsplit(public_url)
+        if parsed.scheme != "https" or not parsed.hostname or parsed.path or parsed.query or parsed.fragment or parsed.username or parsed.password:
+            raise ValueError("ROI_PUBLIC_URL must be an HTTPS origin without a path, query, or credentials.")
+
+    def origin(req):
+        return public_url or str(req.base_url).rstrip("/")
+
+    def make_github(settings):
+        return GitHub(settings, token_provider=github_app.token_for_repo) if settings.github_connection == "app" else GitHub(settings)
+
     # A demo process never opens a real workspace, even if configured via environment.
-    config = store = manager = None
+    config = store = manager = github_app = None
     if not demo_only:
         root = data_dir or Path(os.environ.get("ROI_DATA_DIR", "~/.litellm-roi")).expanduser()
         config, store = ConfigStore(root), Store(root)
-        manager = SyncManager(store)
+        github_app = GitHubApp(root)
+        manager = SyncManager(store, make_github)
 
     async def scheduler():
         while True:
@@ -57,14 +72,17 @@ def create_app(data_dir: Path | None = None, *, demo_only: bool = False) -> Fast
 
     app = FastAPI(title="LiteLLM ROI Calculator", lifespan=lifespan)
     app.state.manager, app.state.store, app.state.config = manager, store, config
+    app.state.github_app = github_app
 
     @app.middleware("http")
     async def local_only(req: Request, call_next):
         host = (req.url.hostname or "").lower()
-        if host not in {"127.0.0.1", "localhost", "::1"}:
-            return JSONResponse({"detail": "This dashboard accepts localhost connections only."}, status_code=403)
-        origin = req.headers.get("origin")
-        if req.url.path.startswith("/api") and origin and origin != str(req.base_url).rstrip("/"):
+        allowed = {urlsplit(public_url).hostname} if public_url else {"127.0.0.1", "localhost", "::1"}
+        if host not in allowed and not (req.url.path == "/health" and req.method == "GET"):
+            return JSONResponse({"detail": "This host is not allowed."}, status_code=403)
+        request_origin = req.headers.get("origin")
+        mutating = req.method not in {"GET", "HEAD", "OPTIONS"}
+        if req.url.path.startswith("/api") and ((request_origin and request_origin != origin(req)) or (public_url and mutating and request_origin != public_url)):
             return JSONResponse({"detail": "Cross-origin requests are not allowed."}, status_code=403)
         if req.method in {"POST", "PUT", "PATCH"} and "application/json" not in req.headers.get("content-type", ""):
             return JSONResponse({"detail": "Use application/json."}, status_code=415)
@@ -74,7 +92,7 @@ def create_app(data_dir: Path | None = None, *, demo_only: bool = False) -> Fast
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["Cache-Control"] = "no-store"
-        response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+        response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self' https://github.com"
         return response
 
     @app.exception_handler(SourceError)
@@ -122,7 +140,7 @@ def create_app(data_dir: Path | None = None, *, demo_only: bool = False) -> Fast
         if scope in ("all", "github"):
             if not settings.repos:
                 raise SourceError("Add at least one repository.")
-            github = GitHub(settings)
+            github = make_github(settings)
             try:
                 for repo in settings.repos:
                     await request(github.client, "GET", f"repos/{repo}")
@@ -144,8 +162,10 @@ def create_app(data_dir: Path | None = None, *, demo_only: bool = False) -> Fast
             await gateway.close()
 
     @app.get("/api/github/repos")
-    async def repositories(org: str = Query(default="", pattern=r"^[A-Za-z0-9-]*$", max_length=100), page: int = Query(default=1, ge=1, le=10000)):
+    async def repositories(org: str = Query(default="", pattern=r"^[A-Za-z0-9-]*$", max_length=100), page: int = Query(default=1, ge=1, le=10000), installation: int = Query(default=0, ge=0)):
         settings = config.load()
+        if installation:
+            return await github_app.repositories(installation, page)
         if not org and not settings.github_token:
             raise SourceError("Add a GitHub token to browse your repositories, or enter an organization to browse public repositories.")
         github = GitHub(settings)
@@ -189,4 +209,6 @@ def create_app(data_dir: Path | None = None, *, demo_only: bool = False) -> Fast
     async def index():
         return FileResponse(ASSETS / "index.html")
 
+    if not demo_only:
+        github_app.install(app, config, origin, secure=bool(public_url))
     return app
