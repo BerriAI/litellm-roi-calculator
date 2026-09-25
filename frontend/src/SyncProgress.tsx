@@ -20,6 +20,8 @@ export function SyncProgress({ status }: { status: AppState["status"] }) {
       aria-label={known ? "Pull requests processed" : status.stage}
       aria-valuetext={known ? `${status.done} of ${status.total} PRs processed` : status.stage} />
     {known && <p className="text-xs muted">{status.done} of {status.total} PRs processed
+      {(status.reused || 0) > 0 && ` · ${status.reused} reused`}
+      {status.estimated > (status.reused || 0) && ` · ${status.estimated - (status.reused || 0)} newly estimated`}
       {status.needs_attention > 0 && ` · ${status.needs_attention} need attention`}</p>}
     <p className="text-xs muted tabular-nums">{duration(status.elapsed_seconds || 0)} elapsed
       {status.running && <span>{" · "}{status.remaining_seconds == null ? "Estimating time remaining…" :

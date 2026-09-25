@@ -10,6 +10,7 @@ class Store:
         with self.connection() as conn:
             conn.executescript("""
                 CREATE TABLE IF NOT EXISTS estimates (cache_key TEXT PRIMARY KEY, value TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS pulls (cache_key TEXT PRIMARY KEY, value TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS reports (id INTEGER PRIMARY KEY AUTOINCREMENT,
                     mode TEXT NOT NULL, value TEXT NOT NULL);
             """)
@@ -26,6 +27,15 @@ class Store:
     def save_estimate(self, key: str, value: dict):
         with self.connection() as conn:
             conn.execute("INSERT OR REPLACE INTO estimates VALUES (?, ?)", (key, json.dumps(value)))
+
+    def pull(self, key: str) -> dict | None:
+        with self.connection() as conn:
+            row = conn.execute("SELECT value FROM pulls WHERE cache_key=?", (key,)).fetchone()
+        return json.loads(row[0]) if row else None
+
+    def save_pull(self, key: str, value: dict):
+        with self.connection() as conn:
+            conn.execute("INSERT OR REPLACE INTO pulls VALUES (?, ?)", (key, json.dumps(value)))
 
     def save_report(self, value: dict) -> dict:
         with self.connection() as conn:

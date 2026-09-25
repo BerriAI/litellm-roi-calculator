@@ -93,7 +93,7 @@ export function Onboarding({ state, refresh, connectionError }: {
     <main className="onboarding-content">
       {progress ? <section className="setup-panel">
         <h1 ref={heading} tabIndex={-1}>{state.status.running ? "Preparing your dashboard" : state.status.phase === "cancelled" ? "Backfill cancelled" : state.status.error ? "Backfill needs attention" : "Starting backfill"}</h1>
-        <p className="onboarding-description">{state.status.running ? "Importing the last" : "History window:"} {saved.backfill_days} days from your gateway and {saved.repos.length} {saved.repos.length === 1 ? "repository" : "repositories"}.</p>
+        <p className="onboarding-description">{state.status.running ? "Importing the last" : "History window:"} {state.settings.backfill_days} days from your gateway and {state.settings.repos.length} {state.settings.repos.length === 1 ? "repository" : "repositories"}.</p>
         <ol className="backfill-stages" aria-label="Backfill progress">{["Import gateway spend", "Import merged pull requests", "Estimate engineering hours"].map((label, i) => <li key={label} className={activePhase === i ? "active" : ""}>
           {activePhase > i ? <Check aria-label="Complete" /> : state.status.running && activePhase === i ? <Loader2 className="animate-spin" aria-label="In progress" /> : <Circle aria-label="Pending" />}
           <span>{label}</span>

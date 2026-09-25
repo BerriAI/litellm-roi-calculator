@@ -10,6 +10,7 @@ from .connectors import SourceError, payload, request
 from .storage import Store
 
 MAX_EVIDENCE_CHARS = 160000
+ESTIMATE_VERSION = "estimate-v3-without-ai"
 RESPONSE_CONTRACT = (
     'Return only a JSON object with "hours" (a nonnegative number) and "reasoning" (a short string). '
     "Hours mean estimated engineering effort to complete the work without AI assistance, not actual time worked or hours saved. "
@@ -40,18 +41,25 @@ class Estimator:
     async def close(self):
         await self.client.aclose()
 
-    async def estimate(self, pr: dict) -> dict:
+    def options(self) -> dict:
         # GPT-6 Luna/Sol require reasoning disabled to honor temperature 0.
         # Leave other models' parameters alone; gateways may use arbitrary aliases.
-        options = {"reasoning_effort": "none"} if re.search(
+        return {"reasoning_effort": "none"} if re.search(
             r"(?:^|[/.])gpt-6-(?:luna|sol)$", self.settings.estimator_model
         ) else {}
+
+    def cache_context(self) -> str:
+        return hashlib.sha256(json.dumps([ESTIMATE_VERSION, self.settings.gateway_url, self.settings.estimator_model,
+            self.settings.estimator_prompt, RESPONSE_CONTRACT, self.options()], ensure_ascii=False).encode()).hexdigest()
+
+    async def estimate(self, pr: dict) -> dict:
+        options = self.options()
         evidence = json.dumps(metadata_evidence(pr), ensure_ascii=False)
         if pr["incomplete_metadata"]:
             return {"status": "needs_review", "hours": None, "reasoning": "GitHub did not provide all file or commit metadata. It was not sent for estimation."}
         if len(evidence) > MAX_EVIDENCE_CHARS:
             return {"status": "needs_review", "hours": None, "reasoning": "This PR exceeds the estimator's input limit. It was not truncated or scored."}
-        key = hashlib.sha256(json.dumps(["estimate-v3-without-ai", self.settings.gateway_url, self.settings.estimator_model,
+        key = hashlib.sha256(json.dumps([ESTIMATE_VERSION, self.settings.gateway_url, self.settings.estimator_model,
             self.settings.estimator_prompt, RESPONSE_CONTRACT, options, pr["head_sha"], evidence], ensure_ascii=False).encode()).hexdigest()
         if cached := self.store.estimate(key):
             return {**cached, "cached": True}

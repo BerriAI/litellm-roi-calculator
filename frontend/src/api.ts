@@ -89,6 +89,7 @@ export interface AppState {
     done: number;
     total: number;
     estimated: number;
+    reused?: number;
     needs_attention: number;
     next_update: string | null;
     error: string | null;

@@ -5,10 +5,11 @@ from time import monotonic
 from .config import Settings
 from .connectors import Gateway, GitHub, SourceError
 from .estimator import Estimator
+from .pull_cache import cache_key, legacy_match, legacy_report
 from .storage import Store
 
 IDLE_STATE = {"running": False, "phase": "idle", "stage": "idle", "done": 0, "total": 0,
-    "estimated": 0, "needs_attention": 0, "error": None}
+    "estimated": 0, "reused": 0, "needs_attention": 0, "error": None}
 PR_CONCURRENCY = 3
 
 
@@ -31,6 +32,7 @@ class SyncManager:
         self.started_at: float | None = None
         self.estimates_started_at: float | None = None
         self.finished_at: float | None = None
+        self.fast_reused = 0
 
     def schedule(self, settings: Settings):
         self.next_update = utcnow() + timedelta(minutes=settings.update_interval_minutes) if settings.update_interval_minutes and settings.public()["ready"] and self.store.latest() else None
@@ -41,14 +43,16 @@ class SyncManager:
         remaining = None
         # Wait for a batch of results; the first cached or unusually small PR
         # alone is not a useful estimate of throughput for the full backfill.
-        if self.state["running"] and self.estimates_started_at is not None and self.state["done"] >= PR_CONCURRENCY:
-            remaining = max(0, (now - self.estimates_started_at) / self.state["done"] * (self.state["total"] - self.state["done"]))
+        processed = self.state["done"] - self.fast_reused
+        if self.state["running"] and self.estimates_started_at is not None and processed >= PR_CONCURRENCY:
+            remaining = max(0, (now - self.estimates_started_at) / processed * (self.state["total"] - self.state["done"]))
         return {**self.state, "next_update": self.next_update.isoformat() if self.next_update else None,
             "elapsed_seconds": round(elapsed), "remaining_seconds": round(remaining) if remaining is not None else None}
 
     def reset(self):
         self.state = IDLE_STATE.copy()
         self.next_update = self.started_at = self.estimates_started_at = self.finished_at = None
+        self.fast_reused = 0
 
     def start(self, settings: Settings):
         if self.state["running"]:
@@ -56,7 +60,8 @@ class SyncManager:
         if not settings.public()["ready"]:
             raise SourceError("Connect your gateway, choose repositories, and select an estimator model first.")
         self.state = {"running": True, "phase": "spend", "stage": "Reading gateway spend", "done": 0, "total": 0,
-            "estimated": 0, "needs_attention": 0, "error": None}
+            "estimated": 0, "reused": 0, "needs_attention": 0, "error": None}
+        self.fast_reused = 0
         self.started_at, self.estimates_started_at, self.finished_at = monotonic(), None, None
         self.task = asyncio.create_task(self.run(settings))
 
@@ -76,6 +81,7 @@ class SyncManager:
         gateway = Gateway(settings)
         github = self.github_factory(settings) if self.github_factory and settings.github_connection == "app" else GitHub(settings)
         estimator = Estimator(settings, self.store)
+        context = estimator.cache_context()
         try:
             start, end = window(settings)
             spend, _ = await gateway.spend(start, end)
@@ -84,10 +90,26 @@ class SyncManager:
             for repo in settings.repos:
                 self.state["stage"] = f"Reading {repo}"
                 queue.extend((repo, pr) for pr in await github.pulls(repo, start, end))
-            self.state.update(phase="estimates", stage="Estimating pull requests", total=len(queue))
-            self.estimates_started_at = monotonic()
             pulls = [None] * len(queue)
-            pending = iter(enumerate(queue))
+            previous = legacy_report(self.store, settings)
+            previous_pulls = {(p["repo"].casefold(), p["number"]): p for p in previous.get("pulls", [])} if previous else {}
+            pending_items = []
+            for index, (repo, pr) in enumerate(queue):
+                key = cache_key(settings, context, repo, pr)
+                cached = self.store.pull(key) if key else None
+                if not cached and key and (old := previous_pulls.get((repo.casefold(), pr["number"]))):
+                    if legacy_match(settings, previous, old, pr):
+                        cached = old
+                        self.store.save_pull(key, cached)
+                if cached and cached.get("estimate", {}).get("status") == "estimated":
+                    pulls[index] = {**cached, "estimate": {**cached["estimate"], "cached": True}}
+                    self.fast_reused += 1
+                else:
+                    pending_items.append((index, (repo, pr)))
+            self.state.update(phase="estimates", stage="Estimating new or changed pull requests", total=len(queue),
+                done=self.fast_reused, estimated=self.fast_reused, reused=self.fast_reused)
+            self.estimates_started_at = monotonic()
+            pending = iter(pending_items)
 
             async def worker():
                 for index, (repo, pr) in pending:
@@ -96,14 +118,21 @@ class SyncManager:
                         estimate = await estimator.estimate(evidence)
                     except SourceError as exc:
                         estimate = {"status": "error", "hours": None, "reasoning": str(exc)}
+                    # Key the fetched evidence, which may have changed since listing.
+                    key = cache_key(settings, context, repo, {**evidence,
+                        "head": {"sha": evidence.get("head_sha")}, "user": {"login": evidence.get("login")}})
                     evidence.pop("files")
                     evidence.pop("body")
                     evidence.pop("commits", None)
                     pulls[index] = {**evidence, "estimate": estimate}
+                    if key and estimate["status"] == "estimated":
+                        self.store.save_pull(key, pulls[index])
+                    if estimate.get("cached"):
+                        self.state["reused"] += 1
                     self.state["done"] += 1
                     self.state["estimated" if estimate["status"] == "estimated" else "needs_attention"] += 1
 
-            workers = [asyncio.create_task(worker()) for _ in range(min(PR_CONCURRENCY, len(queue)))]
+            workers = [asyncio.create_task(worker()) for _ in range(min(PR_CONCURRENCY, len(pending_items)))]
             try:
                 await asyncio.gather(*workers)
             finally:
@@ -116,6 +145,7 @@ class SyncManager:
             self.store.save_report({"mode": "live", "start": start.isoformat(), "end": end.isoformat(),
                 "synced_at": utcnow().isoformat(), "repos": settings.repos,
                 "estimator_model": settings.estimator_model, "estimator_prompt": settings.estimator_prompt,
+                "cache_context": context,
                 "effort_basis": "without_ai",
                 "spend": spend, "pulls": pulls, "warnings": []})
             self.state.update(phase="complete", stage="Up to date")
