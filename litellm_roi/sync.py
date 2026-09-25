@@ -6,6 +6,9 @@ from .connectors import Gateway, GitHub, SourceError
 from .estimator import Estimator
 from .storage import Store
 
+IDLE_STATE = {"running": False, "phase": "idle", "stage": "idle", "done": 0, "total": 0,
+    "estimated": 0, "needs_attention": 0, "error": None}
+
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
@@ -20,8 +23,7 @@ class SyncManager:
     def __init__(self, store: Store):
         self.store = store
         self.task: asyncio.Task | None = None
-        self.state = {"running": False, "phase": "idle", "stage": "idle", "done": 0, "total": 0,
-            "estimated": 0, "needs_attention": 0, "error": None}
+        self.state = IDLE_STATE.copy()
         self.next_update: datetime | None = None
 
     def schedule(self, settings: Settings):

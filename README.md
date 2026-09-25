@@ -29,6 +29,8 @@ Explore the dashboard without credentials or external API calls:
 uv run litellm-roi --demo
 ```
 
+`--demo` runs a separate read-only mode: it does not load your saved workspace, use configured credentials, or run syncs. Stop it and restart without `--demo` to connect real data. On a normally started app, `?demo=1` only changes the displayed report; existing live syncs continue on their configured schedule.
+
 ### Docker
 
 ```bash
@@ -61,7 +63,7 @@ Public repositories can be entered manually without a token, subject to GitHubâ€
 
 ### Optional environment configuration
 
-Copy `.env.example` to `.env` and fill in the fields you want to manage through your environment. Environment values override dashboard settings and are labeled in the UI. Never commit credentials.
+Copy `.env.example` to `.env` and uncomment the fields you want to manage through your environment. Nonempty environment values override dashboard settings and are labeled in the UI. Empty or whitespace-only values are ignored, leaving those fields editable in the dashboard. Never commit credentials.
 
 | Variable | Purpose |
 | --- | --- |
@@ -115,6 +117,8 @@ The app reads GitHub repositories and gateway accounting data. It writes only lo
 **PR titles, descriptions, and code diffs are sent to your configured estimator model through the gateway.** Your gateway/provider's handling applies. Tokens are never returned to the browser. Local `config.json` stores credentials in plaintext with owner-only permissions (`0600`); protect the machine and data-directory backups. SQLite stores report metadata, email matches, model reasoning, and cached estimates. Raw diffs are not persisted by this application.
 
 The app binds to `127.0.0.1` by default, rejects non-local Host headers and cross-origin API requests, and uses no CDN assets. `--host 0.0.0.0` supports Docker; keep its published port bound to loopback. This is a single-user local app, not a public multi-tenant service.
+
+There is no built-in password, login, or user authorization. The localhost checks are not a substitute for authentication. If you share the app through a server or tunnel, protect the entire app and its API with an authentication layer such as your company's SSO. Anyone with access to the unprotected app can view reports, change settings, and trigger syncs using the configured credentials. Publishing this repository does not host your local dashboard or its data.
 
 ## Development
 

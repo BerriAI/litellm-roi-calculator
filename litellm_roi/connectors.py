@@ -109,13 +109,20 @@ class Gateway:
                     cost = finite_number(item.get("metrics", {}).get("spend", 0))
                     accounted += cost
                     address = users.get(uid) or email(item.get("metadata", {}).get("user_email")) or email(uid)
-                    records[(day_date, uid)] = {"date": day_date, "user_id": uid, "email": address,
-                        "spend": cost, "requests": item.get("metrics", {}).get("api_requests", 0)}
+                    # LiteLLM paginates raw spend rows, then aggregates each page.
+                    # A user's day can span pages; each amount is only a partial total.
+                    record = records.setdefault((day_date, uid), {"date": day_date, "user_id": uid,
+                        "email": "", "spend": 0.0, "requests": 0})
+                    record["email"] = record["email"] or address
+                    record["spend"] += cost
+                    record["requests"] += item.get("metrics", {}).get("api_requests", 0)
                 if accounted > day_total + 0.0001:
                     raise SourceError("Daily spend does not reconcile with the user breakdown; no partial report was saved.")
                 remainder = max(0, day_total - accounted)
                 if remainder:
-                    records[(day_date, "__unassigned__")] = {"date": day_date, "user_id": "__unassigned__", "email": "", "spend": remainder, "requests": 0}
+                    record = records.setdefault((day_date, "__unassigned__"), {"date": day_date,
+                        "user_id": "__unassigned__", "email": "", "spend": 0.0, "requests": 0})
+                    record["spend"] += remainder
             metadata = data.get("metadata", {})
             if not metadata.get("has_more", page < metadata.get("total_pages", page)):
                 return list(records.values()), users

@@ -18,12 +18,15 @@ const navigation = [
   { id: "people", label: "People", icon: Users },
   { id: "settings", label: "Settings", icon: Settings2 },
 ] as const;
-const demo = new URLSearchParams(location.search).get("demo") === "1";
-const mode = demo ? "demo" : "live";
+const demoView = new URLSearchParams(location.search).get("demo") === "1";
+const mode = demoView ? "demo" : "live";
 
 export function App() {
   const [state, setState] = useState<AppState | null>(null);
-  const [page, setPage] = useState<Page>(new URLSearchParams(location.search).get("page") === "settings" ? "settings" : "overview");
+  const [selectedPage, setPage] = useState<Page>(new URLSearchParams(location.search).get("page") === "settings" ? "settings" : "overview");
+  const demo = demoView || !!state?.demo_only;
+  const page = demo && selectedPage === "settings" ? "overview" : selectedPage;
+  const [demoHelp, setDemoHelp] = useState(false);
   const [error, setError] = useState("");
   const [connectionError, setConnectionError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -49,7 +52,11 @@ export function App() {
   }, []);
 
   function navigate(next: Page) {
-    if (demo && next === "settings") { location.assign("/"); return; }
+    if (demo && next === "settings") {
+      if (state?.demo_only) { setMatching(null); setDemoHelp(true); }
+      else location.assign("/");
+      return;
+    }
     setPage(next); setError(""); window.scrollTo(0, 0);
   }
   async function startSync() {
@@ -129,6 +136,14 @@ export function App() {
         {` · ${state.settings.update_interval_minutes ? `Updates every ${state.settings.update_interval_minutes} minutes` : "Manual updates"}`}
       </p>}
     </div></main>
+    <Dialog open={demoHelp} onOpenChange={setDemoHelp}>
+      <DialogContent>
+        <DialogHeader><DialogTitle>Connect your data</DialogTitle>
+          <DialogDescription>Stop the demo and restart without <code>--demo</code> to connect your gateway and repositories.</DialogDescription></DialogHeader>
+        <code className="rounded-md bg-muted p-3 text-sm">uv run litellm-roi</code>
+        <DialogFooter><Button onClick={() => setDemoHelp(false)}>Got it</Button></DialogFooter>
+      </DialogContent>
+    </Dialog>
     <Dialog open={!!selectedPR} onOpenChange={open => { if (!open) selectPR(null); }}>
       <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-xl">
         {selectedPR && <>

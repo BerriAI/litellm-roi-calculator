@@ -137,3 +137,38 @@ async def test_github_access_errors_explain_company_authorization_without_leakin
         await github.repositories("company")
     await github.close()
     assert "private-token" not in str(exc.value)
+
+
+async def test_gateway_sums_user_and_unassigned_spend_across_pages(settings):
+    def handler(req):
+        if req.url.path == "/user/list":
+            return httpx.Response(200, json={"users": [
+                {"user_id": "u1", "user_email": "alice@example.com"},
+                {"user_id": "u2", "user_email": "bob@example.com"},
+            ], "total_pages": 1})
+        page = int(req.url.params["page"])
+        # The same date/user occurs on both pages because LiteLLM paginates
+        # raw rows before aggregating by user and date within each page.
+        rows = [{"date": "2026-09-25", "metrics": {"spend": 10 if page == 1 else 5},
+            "breakdown": {"entities": {"u1": {"metrics": {
+                "spend": 7 if page == 1 else 3, "api_requests": 3 if page == 1 else 2,
+            }}}}}]
+        if page == 2:
+            rows.append({"date": "2026-09-24", "metrics": {"spend": 2}, "breakdown": {
+                "entities": {"u2": {"metrics": {"spend": 2, "api_requests": 1}}}}})
+        return httpx.Response(200, json={"results": rows, "metadata": {"has_more": page < 2}})
+
+    gateway = Gateway(settings, httpx.MockTransport(handler))
+    try:
+        for _ in range(2):  # A new sync imports a fresh snapshot, not lifetime totals.
+            records, _ = await gateway.spend(date(2026, 9, 24), date(2026, 9, 25))
+            by_user = {row["user_id"]: row for row in records}
+            assert by_user["u1"]["spend"] == 10
+            assert by_user["u1"]["requests"] == 5
+            assert by_user["u1"]["email"] == "alice@example.com"
+            assert by_user["u2"]["spend"] == 2
+            assert by_user["u2"]["date"] == "2026-09-24"
+            assert by_user["__unassigned__"]["spend"] == 5
+            assert sum(row["spend"] for row in records) == 17
+    finally:
+        await gateway.close()

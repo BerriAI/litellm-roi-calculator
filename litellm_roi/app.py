@@ -12,18 +12,21 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 
 from .analytics import summarize
-from .config import DEFAULT_PROMPT, ENV_FIELDS, ConfigStore, Settings
+from .config import DEFAULT_PROMPT, ConfigStore, Settings, environment_overrides
 from .connectors import Gateway, GitHub, SourceError, request
 from .storage import Store
-from .sync import SyncManager, demo_report, utcnow
+from .sync import IDLE_STATE, SyncManager, demo_report, utcnow
 
 ASSETS = Path(__file__).parent / "static"
 
 
-def create_app(data_dir: Path | None = None) -> FastAPI:
-    root = data_dir or Path(os.environ.get("ROI_DATA_DIR", "~/.litellm-roi")).expanduser()
-    config, store = ConfigStore(root), Store(root)
-    manager = SyncManager(store)
+def create_app(data_dir: Path | None = None, *, demo_only: bool = False) -> FastAPI:
+    # A demo process never opens a real workspace, even if configured via environment.
+    config = store = manager = None
+    if not demo_only:
+        root = data_dir or Path(os.environ.get("ROI_DATA_DIR", "~/.litellm-roi")).expanduser()
+        config, store = ConfigStore(root), Store(root)
+        manager = SyncManager(store)
 
     async def scheduler():
         while True:
@@ -34,6 +37,9 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app):
+        if demo_only:
+            yield
+            return
         settings = config.load()
         manager.schedule(settings)
         previous = store.latest()
@@ -62,6 +68,8 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
             return JSONResponse({"detail": "Cross-origin requests are not allowed."}, status_code=403)
         if req.method in {"POST", "PUT", "PATCH"} and "application/json" not in req.headers.get("content-type", ""):
             return JSONResponse({"detail": "Use application/json."}, status_code=415)
+        if demo_only and req.url.path.startswith("/api") and req.url.path not in {"/api/state", "/api/export"}:
+            return JSONResponse({"detail": "Demo mode cannot connect to services or change settings. Restart without --demo to connect your data."}, status_code=403)
         response = await call_next(req)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
@@ -75,11 +83,15 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
 
     @app.get("/api/state")
     async def state(mode: str = "live"):
+        if demo_only or mode == "demo":
+            return {"demo_only": demo_only, "settings": Settings().public(),
+                "status": {**IDLE_STATE, "next_update": None}, "default_prompt": DEFAULT_PROMPT,
+                "environment_fields": [], "report": summarize(demo_report(), {})}
         settings = config.load()
-        report = demo_report() if mode == "demo" else store.latest()
-        return {"settings": settings.public(), "status": manager.status(), "default_prompt": DEFAULT_PROMPT,
-            "environment_fields": [field for field, env in ENV_FIELDS.items() if env in os.environ] + (["repos"] if "GITHUB_REPOS" in os.environ else []),
-            "report": summarize(report, settings.identity_map if mode != "demo" else {}) if report else None}
+        report = store.latest()
+        return {"demo_only": False, "settings": settings.public(), "status": manager.status(), "default_prompt": DEFAULT_PROMPT,
+            "environment_fields": list(environment_overrides()),
+            "report": summarize(report, settings.identity_map) if report else None}
 
     @app.put("/api/settings")
     async def settings(update: dict = Body(...)):
@@ -154,10 +166,11 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
 
     @app.get("/api/export")
     async def export(mode: str = "live"):
-        raw = demo_report() if mode == "demo" else store.latest()
+        sample = demo_only or mode == "demo"
+        raw = demo_report() if sample else store.latest()
         if not raw:
             raise HTTPException(404, "Sync a report before exporting.")
-        report = summarize(raw, config.load().identity_map if mode != "demo" else {})
+        report = summarize(raw, {} if sample else config.load().identity_map)
         stream = io.StringIO()
         writer = csv.writer(stream)
         writer.writerow(["email", "github_logins", "gateway_spend_usd", "estimated_hours", "merged_prs", "pending_estimates", "in_matched_cohort", "cost_per_estimated_hour", "start_utc", "end_utc"])

@@ -26,7 +26,7 @@ def main():
         timer = threading.Timer(1, lambda: webbrowser.open(url))
         timer.daemon = True
         timer.start()
-    uvicorn.run(create_app(), host=args.host, port=args.port, log_level="warning", access_log=False)
+    uvicorn.run(create_app(demo_only=args.demo), host=args.host, port=args.port, log_level="warning", access_log=False)
 
 
 if __name__ == "__main__":

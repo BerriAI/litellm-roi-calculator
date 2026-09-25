@@ -111,6 +111,15 @@ ENV_FIELDS = {
 }
 
 
+def environment_overrides() -> dict:
+    values = {field: value for field, variable in ENV_FIELDS.items()
+        if (value := os.environ.get(variable, "").strip())}
+    repos = [repo.strip() for repo in os.environ.get("GITHUB_REPOS", "").split(",") if repo.strip()]
+    if repos:
+        values["repos"] = repos
+    return values
+
+
 class ConfigStore:
     def __init__(self, root: Path):
         self.root = root
@@ -119,11 +128,7 @@ class ConfigStore:
 
     def load(self) -> Settings:
         data = json.loads(self.path.read_text()) if self.path.exists() else {}
-        for field, variable in ENV_FIELDS.items():
-            if variable in os.environ:
-                data[field] = os.environ[variable]
-        if "GITHUB_REPOS" in os.environ:
-            data["repos"] = [r.strip() for r in os.environ["GITHUB_REPOS"].split(",") if r.strip()]
+        data.update(environment_overrides())
         return Settings(**data)
 
     def save(self, update: dict) -> Settings:

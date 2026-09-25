@@ -73,6 +73,7 @@ export interface Report {
 }
 
 export interface AppState {
+  demo_only: boolean;
   settings: Settings;
   environment_fields: string[];
   default_prompt: string;
