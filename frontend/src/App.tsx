@@ -63,7 +63,7 @@ export function App() {
   async function startSync() {
     if (demo) return;
     await api("/api/sync", "POST", {});
-    await refresh(); setPage("overview");
+    await refresh(); navigate("overview");
   }
   async function syncAction(cancel = false) {
     setBusy(true); setError("");
