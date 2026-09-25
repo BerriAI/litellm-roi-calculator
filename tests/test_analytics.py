@@ -35,6 +35,13 @@ def test_pending_pr_excludes_entire_person_from_ratio(pr):
     assert result["metrics"]["pending_prs"] == 1
 
 
+def test_older_reports_are_not_relabelled_as_without_ai(pr):
+    data = report(pr)
+    assert summarize(data, {})["effort_basis"] is None
+    data["effort_basis"] = "without_ai"
+    assert summarize(data, {})["effort_basis"] == "without_ai"
+
+
 def test_missing_spend_is_not_zero_and_manual_match_recomputes(pr):
     data = report(pr)
     data["pulls"][0]["emails"] = []

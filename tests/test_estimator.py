@@ -19,6 +19,7 @@ async def test_temperature_zero_unanchored_prompt_and_cache_invalidation(setting
         assert data["model"] == "test-estimator"
         assert "reasoning_effort" not in data
         assert "3 hours" not in data["messages"][0]["content"]
+        assert "without AI assistance" in data["messages"][0]["content"]
         evidence = json.loads(data["messages"][1]["content"])
         assert "patch" not in evidence["files"][0]
         assert evidence["files"][0]["additions"] == 1
@@ -31,6 +32,7 @@ async def test_temperature_zero_unanchored_prompt_and_cache_invalidation(setting
     first = await estimator.estimate(pr)
     second = await estimator.estimate(pr)
     assert first["hours"] == 4.25 and not first["cached"]
+    assert first["effort_basis"] == "without_ai"
     assert second["cached"] and len(calls) == 1
     pr["title"] = "Updated evidence"
     await estimator.estimate(pr)

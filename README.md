@@ -1,8 +1,8 @@
 # LiteLLM ROI Calculator
 
-A local dashboard that compares LiteLLM gateway spend with **estimated engineering hours** from merged GitHub pull requests. Choose the estimator model and prompt, match people by email, and see spend per estimated engineering hour.
+A local dashboard that compares LiteLLM gateway spend with **estimated engineering hours without AI assistance** from merged GitHub pull requests. Choose the estimator model and prompt, match people by email, and see spend per estimated engineering hour.
 
-These are model estimates of engineering effort, not actual hours spent or hours saved by AI.
+These are model estimates of how long an engineer would take to complete the work without AI assistance, not actual hours spent or hours saved by AI.
 
 No hosted account, external database, or frontend build required. Python 3.11+.
 
@@ -55,7 +55,7 @@ Automatic updates begin only after the first successful backfill and run while t
 
 - **Private and internal repos:** use a company-approved fine-grained personal access token with read access to **Pull requests, Contents, and Metadata** on the repositories you select. Set the organization as the token’s resource owner. If your company uses classic tokens, private repo access requires the `repo` scope. The app only reads GitHub data.
 - **Organization access:** approve the token if your organization requires it. For classic tokens in SAML SSO organizations, authorize the token for that organization. Organization policies and your account’s repository access still apply; this connection does not bypass them.
-- **Repository picker:** leave Organization blank to list repositories accessible to the token, or enter an organization to browse its repositories. Use the filter and Load more for larger lists. Select up to 50 repositories per workspace. The same picker is available in Settings.
+- **Repository picker:** leave Organization blank to list repositories accessible to the token, or enter an organization to browse its repositories. Use the filter and Load more for larger lists. There is no fixed repository-count limit; larger selections take longer to import and remain subject to GitHub API limits. The same picker is available in Settings.
 - **GitHub Enterprise Server:** expand **Advanced connection settings** and enter your API URL, such as `https://github.company.com/api/v3`. Enterprise Cloud with data residency can use `https://api.company.ghe.com`. Use a token issued for that server. Full repository URLs must match the configured server; `owner/repo` works for either.
 - **Company networks:** run the app on a machine with access to the gateway and GitHub server, including your VPN if needed. For a company certificate authority, configure HTTPX’s `SSL_CERT_FILE` or `SSL_CERT_DIR`; TLS verification stays enabled.
 
@@ -65,7 +65,7 @@ Public repositories can be entered manually without a token, subject to GitHub�
 
 **Connect GitHub** registers a GitHub App for this deployment, then opens GitHub’s account and repository access screen. You own the App. It requests only read access to Contents, Pull requests, and Metadata; it does not subscribe to webhooks or modify code. GitHub may ask you to confirm your account before creating the App. Organization owners may need to approve installation.
 
-After installation, GitHub asks you to authorize the connection so the calculator can verify that the installation belongs to an account you can access. The resulting user token is used only for that check and is not saved. Background updates use short-lived installation tokens that renew automatically. Each connected installation shares its approved repositories with this calculator workspace. Click **Manage GitHub access** to connect another account or change available repos, then select which repos to measure. Up to 50 repositories can be selected across connected accounts.
+After installation, GitHub asks you to authorize the connection so the calculator can verify that the installation belongs to an account you can access. The resulting user token is used only for that check and is not saved. Background updates use short-lived installation tokens that renew automatically. Each connected installation shares its approved repositories with this calculator workspace. Click **Manage GitHub access** to connect another account or change available repos, then select which repos to measure. Repositories can be selected across connected accounts.
 
 This is a repository connection, **not a login gate for the dashboard**. No Google OAuth or built-in SSO is required. To use an existing GitHub App instead, configure `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET`, and `GITHUB_APP_PRIVATE_KEY` on the server. Set its callback URL to `<your-origin>/github/callback`, setup URL to `<your-origin>/github/installed`, disable webhooks and OAuth-on-install, and grant the read permissions above. The guided connection supports github.com; Enterprise servers use the manual connection under Advanced.
 
@@ -87,9 +87,9 @@ Copy `.env.example` to `.env` and uncomment the fields you want to manage throug
 
 The default prompt is intentionally simple and contains no hour anchors or examples:
 
-> Estimate how many hours it would take an engineer to complete the work in this pull request. Explain your estimate briefly.
+> Estimate how many hours it would take an engineer to complete the work in this pull request without AI assistance. Explain your estimate briefly.
 
-The application adds a JSON response contract and asks the estimator to summarize the apparent changes and explain its estimate using the supplied metadata. Every request uses **temperature 0**. Evidence includes the PR title and description, net additions and deletions, filenames and change counts per file, and commit messages with their full descriptions. Authenticated connections also include per-commit change counts. Code patches, elapsed PR duration, and suggested hour ranges are excluded. Commit totals can overlap and are not added to the PR's net totals. Models that do not support temperature 0 are not silently given a different temperature.
+The application keeps the no-AI-assistance baseline in its response contract, including when using a custom prompt, and asks the estimator to summarize the apparent changes and explain its estimate using the supplied metadata. Every request uses **temperature 0**. Evidence includes the PR title and description, net additions and deletions, filenames and change counts per file, and commit messages with their full descriptions. Authenticated connections also include per-commit change counts. Code patches, elapsed PR duration, and suggested hour ranges are excluded. Commit totals can overlap and are not added to the PR's net totals. Models that do not support temperature 0 are not silently given a different temperature.
 
 This is a metadata-based assessment. It relies on the accuracy of PR descriptions and commit messages and does not verify the implementation or code quality.
 
@@ -105,7 +105,7 @@ Spend per estimated hour = matched gateway spend / matched estimated engineering
 - **Matched cohort:** people with observed gateway spend, merged PRs, and complete estimates for their imported PRs. Both sides of the ratio use that same set of people. Zero denominators show “—”.
 - **All spending stays visible.** People without imported PRs, unassigned usage, and people with incomplete estimates are excluded from the ratio but remain in the total and coverage disclosure.
 - **A person's spend is not a PR's cost.** The numerator includes all their gateway usage in the period, while output covers the selected repositories. The app does not invent per-PR or per-repo spend attribution. Choosing a subset of repos limits output coverage.
-- **This is an output/spend comparison, not causal financial ROI.** Estimated hours describe the work represented by code changes, not hours actually worked, payroll savings, business value, or hours saved by AI. It does not claim that all scored work was AI-generated.
+- **This is an output/spend comparison, not causal financial ROI.** Estimated hours describe the engineering effort to complete the work without AI assistance, not hours actually worked, payroll savings, business value, or hours saved by AI. It does not claim that all scored work was AI-generated.
 - **Gateway spend is gateway-reported usage cost**, not necessarily an invoice including subscriptions, discounts, or credits. Costs outside the connected gateway are not included.
 
 ### Matching people
@@ -117,7 +117,7 @@ In **People**, click **Match email** to connect a GitHub username to a gateway e
 ### Estimation coverage and caching
 
 - Inspect every estimate's reasoning, model, and status by opening a PR.
-- Cached estimates are keyed by gateway URL, model, prompt, schema, head SHA, and exact PR metadata. Unchanged PRs reuse their estimate. Changing the model, prompt, title, description, commit messages, or change counts generates a new estimate. Earlier estimates based on diffs are not reused.
+- Cached estimates are keyed by gateway URL, model, prompt, schema, head SHA, and exact PR metadata. Unchanged PRs reuse their estimate. Changing the model, prompt, title, description, commit messages, or change counts generates a new estimate. Earlier estimates based on diffs or an unspecified AI-assistance baseline are not reused. Existing reports retain their original meaning until the next sync recalculates the window; they are not relabeled as estimates without AI.
 - Missing file or commit metadata and metadata above the 160,000-character input limit are marked **Needs review**. Large or binary code patches do not block estimation because patches are not part of the evidence. The app never silently truncates metadata and presents a full estimate.
 - Failed model calls are visible and retried on a future sync. They are not cached as zero hours.
 - Sync reads gateway spend **before** making estimator calls. Estimator calls can appear in subsequent gateway activity. Use a dedicated estimator key owned by a service user with no PRs to keep that spend outside the matched cohort. Requests are tagged `litellm-roi-estimator`.

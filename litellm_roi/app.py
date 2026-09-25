@@ -193,9 +193,9 @@ def create_app(data_dir: Path | None = None, *, demo_only: bool = False) -> Fast
         report = summarize(raw, {} if sample else config.load().identity_map)
         stream = io.StringIO()
         writer = csv.writer(stream)
-        writer.writerow(["email", "github_logins", "gateway_spend_usd", "estimated_hours", "merged_prs", "pending_estimates", "in_matched_cohort", "cost_per_estimated_hour", "start_utc", "end_utc"])
+        writer.writerow(["email", "github_logins", "gateway_spend_usd", "estimated_hours", "merged_prs", "pending_estimates", "in_matched_cohort", "cost_per_estimated_hour", "start_utc", "end_utc", "effort_basis"])
         for person in report["people"]:
-            cells = [person["email"], ";".join(person["logins"]), person["spend"], person["hours"], person["prs"], person["pending_prs"], person["eligible"], person["cost_per_hour"], report["start"], report["end"]]
+            cells = [person["email"], ";".join(person["logins"]), person["spend"], person["hours"], person["prs"], person["pending_prs"], person["eligible"], person["cost_per_hour"], report["start"], report["end"], report["effort_basis"] or "unspecified"]
             writer.writerow(["'" + v if isinstance(v, str) and v.startswith(("=", "+", "-", "@", "\t", "\r")) else v for v in cells])
         return Response(stream.getvalue(), media_type="text/csv", headers={"Content-Disposition": 'attachment; filename="litellm-roi.csv"'})
 

@@ -69,6 +69,7 @@ def summarize(report: dict, mappings: dict[str, str]) -> dict:
         "id": report.get("id"), "mode": report["mode"], "start": report["start"], "end": report["end"],
         "synced_at": report["synced_at"], "repos": report["repos"], "estimator_model": report["estimator_model"],
         "estimator_prompt": report.get("estimator_prompt", ""), "warnings": report.get("warnings", []),
+        "effort_basis": report.get("effort_basis"),
         "metrics": {"matched_spend": spend, "output_hours": hours, "total_spend": total_spend,
             "total_output_hours": sum(p["hours"] for p in people.values()),
             "excluded_spend": max(0, total_spend - spend), "cost_per_hour": spend / hours if hours else None,

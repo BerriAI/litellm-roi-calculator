@@ -87,7 +87,7 @@ export function Onboarding({ state, refresh, connectionError }: {
     <main className={`onboarding-content ${screen === "welcome" && !progress ? "onboarding-welcome" : ""}`}>
       {!progress && screen === "welcome" ? <section className="setup-panel">
         <h1 ref={heading} tabIndex={-1}>Set up your data</h1>
-        <p className="onboarding-description">Connect your LiteLLM gateway and GitHub repositories to compare AI spend with estimated engineering hours.</p>
+        <p className="onboarding-description">Connect your LiteLLM gateway and GitHub repositories to compare AI spend with estimated engineering hours without AI assistance.</p>
         <ol className="welcome-steps">{["Connect your gateway", "Choose your repositories", "Choose an estimator and start backfill"].map((label, i) => <li key={label}><span>{i + 1}</span>{label}</li>)}</ol>
         <Button onClick={() => setScreen("setup")}>{hasSetup ? "Continue setup" : "Get started"}<ArrowRight /></Button>
         <p className="setup-footnote">Engineering hours are model estimates, not actual time spent.</p>
@@ -130,7 +130,7 @@ export function Onboarding({ state, refresh, connectionError }: {
               <details className="details"><summary>Estimator prompt</summary><div className="pt-2"><Field label="Prompt">
                 <Textarea name="estimator_prompt" rows={4} maxLength={20000} value={values.estimator_prompt} onChange={e => update("estimator_prompt", e.target.value)} />
               </Field><Button type="button" variant="link" className="p-0 mt-2 h-auto" onClick={() => update("estimator_prompt", state.default_prompt)}>Reset prompt</Button></div></details>
-              <p className="text-sm muted leading-relaxed">PR descriptions, file change counts, and commit metadata are sent to this model through your gateway. Code patches are excluded. Temperature is fixed at 0.</p>
+              <p className="text-sm muted leading-relaxed">Estimates assume the work is completed without AI assistance. PR descriptions, file change counts, and commit metadata are sent through your gateway. Temperature is fixed at 0.</p>
               <div className="grid gap-5 sm:grid-cols-2">
                 <Field label="Backfill (days)" help="Rolling history window, including today."><Input name="backfill_days" type="number" min={1} max={3650} required value={values.backfill_days} onChange={e => update("backfill_days", e.target.value)} /></Field>
                 <Field label="Update interval (minutes)" help="0 for manual, or at least 5 minutes."><Input name="update_interval_minutes" type="number" min={0} max={43200} required value={values.update_interval_minutes} onChange={e => update("update_interval_minutes", e.target.value)} /></Field>

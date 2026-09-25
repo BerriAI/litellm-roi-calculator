@@ -10,7 +10,7 @@ from pydantic import ValidationError
 
 from litellm_roi import sync as sync_module
 from litellm_roi.app import create_app
-from litellm_roi.config import ConfigStore, Settings
+from litellm_roi.config import DEFAULT_PROMPT, ConfigStore, Settings
 from litellm_roi.connectors import Gateway, GitHub
 from litellm_roi.estimator import Estimator
 from litellm_roi.storage import Store
@@ -33,6 +33,24 @@ def test_settings_persist_schedule_without_returning_secrets(tmp_path):
         assert client.get("/api/state").json()["status"]["next_update"] is None
     assert ConfigStore(tmp_path).load().backfill_days == 90
     assert (tmp_path / "config.json").stat().st_mode & 0o777 == 0o600
+
+
+def test_large_repository_selection_is_saved_and_deduplicated(tmp_path):
+    repos = [f"company/repo-{i}" for i in range(150)]
+    with TestClient(create_app(tmp_path), base_url="http://localhost") as client:
+        response = client.put("/api/settings", json={"repos": repos + ["COMPANY/REPO-0"]})
+        assert response.status_code == 200
+        assert response.json()["repos"] == repos
+    assert ConfigStore(tmp_path).load().repos == repos
+
+
+def test_old_default_prompt_updates_without_overwriting_custom_prompts(tmp_path):
+    config = ConfigStore(tmp_path)
+    config.path.write_text(json.dumps({"estimator_prompt": DEFAULT_PROMPT.replace(" without AI assistance", "")}))
+    assert config.load().estimator_prompt == DEFAULT_PROMPT
+    custom = "Estimate engineering hours using the PR metadata."
+    config.save({"estimator_prompt": custom})
+    assert config.load().estimator_prompt == custom
 
 
 def test_local_origin_host_guards_and_read_only_demo(tmp_path):
@@ -128,6 +146,7 @@ async def test_full_sync_caches_estimates_and_preserves_previous_report_on_sourc
     manager.start(settings)
     await manager.task
     first = store.latest()
+    assert first["effort_basis"] == "without_ai"
     assert manager.state["error"] is None and first["pulls"][0]["estimate"]["hours"] == 4
     assert manager.state["phase"] == "complete"
     assert manager.state["done"] == manager.state["estimated"] == manager.state["total"] == 1

@@ -9,7 +9,7 @@ from urllib.parse import urlsplit
 from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
 DEFAULT_PROMPT = (
-    "Estimate how many hours it would take an engineer to complete the work in this pull request. "
+    "Estimate how many hours it would take an engineer to complete the work in this pull request without AI assistance. "
     "Explain your estimate briefly."
 )
 
@@ -59,6 +59,7 @@ class Settings(BaseModel):
     @classmethod
     def valid_repos(cls, values: list[str], info: ValidationInfo) -> list[str]:
         repos = []
+        seen = set()
         for value in values:
             value = value.strip()
             if "://" in value:
@@ -71,10 +72,9 @@ class Settings(BaseModel):
             value = value.rstrip("/").removesuffix(".git")
             if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", value):
                 raise ValueError("Repositories must be owner/repo or a GitHub repository URL.")
-            if value.casefold() not in {r.casefold() for r in repos}:
+            if value.casefold() not in seen:
                 repos.append(value)
-        if len(repos) > 50:
-            raise ValueError("Connect up to 50 repositories per local workspace.")
+                seen.add(value.casefold())
         return repos
 
     @field_validator("identity_map")
@@ -130,6 +130,8 @@ class ConfigStore:
 
     def load(self) -> Settings:
         data = json.loads(self.path.read_text()) if self.path.exists() else {}
+        if data.get("estimator_prompt") == DEFAULT_PROMPT.replace(" without AI assistance", ""):
+            data["estimator_prompt"] = DEFAULT_PROMPT
         data.update(environment_overrides())
         return Settings(**data)
 

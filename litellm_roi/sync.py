@@ -96,6 +96,7 @@ class SyncManager:
             self.store.save_report({"mode": "live", "start": start.isoformat(), "end": end.isoformat(),
                 "synced_at": utcnow().isoformat(), "repos": settings.repos,
                 "estimator_model": settings.estimator_model, "estimator_prompt": settings.estimator_prompt,
+                "effort_basis": "without_ai",
                 "spend": spend, "pulls": pulls, "warnings": []})
             self.state.update(phase="complete", stage="Up to date")
         except asyncio.CancelledError:
@@ -127,10 +128,10 @@ def demo_report() -> dict:
             "url": "", "login": login, "emails": [address], "profile_email": address,
             "merged_at": day + "T14:20:00Z", "head_sha": f"demo-{i}", "additions": 47 + i * 23,
             "deletions": 12 + i * 4, "estimate": {"status": "estimated", "hours": hours + (i % 3),
-                "reasoning": "Sample estimate for demonstration. A live run uses the PR description, file change counts, and commit metadata.", "model": "your-estimator-model", "evidence_source": "pr_metadata", "cached": False}})
+                "reasoning": "Sample estimate of engineering effort without AI assistance. A live run uses the PR description, file change counts, and commit metadata.", "model": "your-estimator-model", "evidence_source": "pr_metadata", "effort_basis": "without_ai", "cached": False}})
         spend.append({"date": day, "user_id": login, "email": address, "spend": cost + i, "requests": 150 + i * 27})
     pulls.append({**pulls[0], "number": 156, "login": "casey", "emails": [], "profile_email": "",
         "title": "Add integration tests for billing", "estimate": {**pulls[0]["estimate"], "hours": 5.5}})
     spend.append({"date": end.isoformat(), "user_id": "shared-key", "email": "", "spend": 31.8, "requests": 210})
     return {"mode": "demo", "start": start.isoformat(), "end": end.isoformat(), "synced_at": utcnow().isoformat(),
-        "repos": ["example/gateway"], "estimator_model": "your-estimator-model", "spend": spend, "pulls": pulls}
+        "repos": ["example/gateway"], "estimator_model": "your-estimator-model", "effort_basis": "without_ai", "spend": spend, "pulls": pulls}

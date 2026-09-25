@@ -81,7 +81,7 @@ export function SettingsForm({ state, refresh, onSync }: {
             <Button type="button" variant="outline" onClick={() => void action("models")}>{busy === "models" ? "Loading…" : "Load models"}</Button>
           </div>
           <p className="field-help">We recommend a small model, such as GPT Luna or Claude Haiku.</p>
-          <Field label="Prompt" help="Temperature is fixed at 0. The model receives PR descriptions, file change counts, and commit metadata. Code patches are excluded.">
+          <Field label="Prompt" help="Estimates assume the work is completed without AI assistance. Temperature is fixed at 0. The model receives PR descriptions, file change counts, and commit metadata.">
             <Textarea name="estimator_prompt" rows={4} className="min-h-28" value={values.estimator_prompt}
               onChange={e => update("estimator_prompt", e.target.value)} required maxLength={20000} />
           </Field>

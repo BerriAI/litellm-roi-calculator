@@ -31,6 +31,7 @@ export interface Pull {
     error?: string;
     model?: string;
     evidence_source?: string;
+    effort_basis?: string;
     cached?: boolean;
   };
 }
@@ -50,6 +51,7 @@ export interface Person {
 }
 
 export interface Report {
+  effort_basis?: string | null;
   id: number | null;
   start: string;
   end: string;

@@ -83,7 +83,6 @@ export function GitHubConnection({ values, saved, locked, update, saveConnection
   }
 
   function toggle(repo: string, checked: boolean) {
-    if (checked && selected.length >= 50) { setError("Select up to 50 repositories."); return; }
     update("repos", (checked ? [...selected, repo] : selected.filter(value => normalized(value) !== repo.toLowerCase())).join("\n"));
     setError("");
   }
@@ -141,7 +140,7 @@ export function GitHubConnection({ values, saved, locked, update, saveConnection
             <Button type="button" variant="outline" disabled={busy} onClick={() => void browse()}>{busy ? "Loading…" : "Browse repos"}</Button>
           </div>
         </>}
-        <Field label="Repository names" locked={locked("repos")} help="One owner/repo or repository URL per line. Up to 50 repositories.">
+        <Field label="Repository names" locked={locked("repos")} help="One owner/repo or repository URL per line.">
           <Textarea name="repos" rows={3} value={values.repos} disabled={locked("repos")} onChange={e => update("repos", e.target.value)} placeholder="your-company/your-repo" />
         </Field>
       </div>

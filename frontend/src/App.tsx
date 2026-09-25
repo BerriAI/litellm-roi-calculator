@@ -21,6 +21,9 @@ const navigation = [
 ] as const;
 const demoView = new URLSearchParams(location.search).get("demo") === "1";
 const mode = demoView ? "demo" : "live";
+const effortNote = (basis?: string | null) => basis === "without_ai"
+  ? "Estimated engineering hours without AI assistance, not actual hours worked or hours saved."
+  : "Earlier estimates did not specify AI assistance. Sync to estimate engineering hours without AI.";
 
 export function App() {
   const [state, setState] = useState<AppState | null>(null);
@@ -150,9 +153,9 @@ export function App() {
         {selectedPR && <>
           <DialogHeader><DialogTitle className="pr-8 leading-snug">{selectedPR.title}</DialogTitle>
             <DialogDescription>{selectedPR.repo} #{selectedPR.number} · {selectedPR.login}</DialogDescription></DialogHeader>
-          <div><p className="text-sm muted">Estimated engineering hours</p><p className="mt-2 text-3xl font-semibold tabular-nums">
+          <div><p className="text-sm muted">Estimated engineering hours{selectedPR.estimate.effort_basis === "without_ai" && " without AI"}</p><p className="mt-2 text-3xl font-semibold tabular-nums">
             {selectedPR.estimate.status === "estimated" ? `${number(selectedPR.estimate.hours)} hrs` : selectedPR.estimate.status === "error" ? "Estimate failed" : "Needs review"}
-          </p><p className="mt-2 text-xs muted">Model estimate, not actual hours spent or hours saved by AI.</p>
+          </p><p className="mt-2 text-xs muted">{effortNote(selectedPR.estimate.effort_basis || report?.effort_basis)}</p>
           {selectedPR.estimate.evidence_source === "pr_metadata" && <p className="mt-1 text-xs muted">Based on PR descriptions, file change counts, and commit metadata.</p>}</div>
           <div><h3 className="mb-2 font-medium">Reasoning</h3><p className="whitespace-pre-wrap leading-relaxed">{selectedPR.estimate.reasoning || "No estimate available."}</p></div>
           <dl className="grid grid-cols-[auto_1fr] gap-x-5 gap-y-2 text-xs">
@@ -200,10 +203,10 @@ function Overview({ report, onSelect, onPeople }: { report: Report; onSelect: (p
           </div>
           <dl className="summary-inputs">
             <div><dt>Gateway spend</dt><dd>{money(m.matched_spend)}</dd></div>
-            <div><dt>Estimated engineering hours</dt><dd>{number(m.output_hours)} <span className="text-base font-normal muted">hrs</span></dd></div>
+            <div><dt>Estimated engineering hours{report.effort_basis === "without_ai" && " without AI"}</dt><dd>{number(m.output_hours)} <span className="text-base font-normal muted">hrs</span></dd></div>
           </dl>
         </CardContent>
-        <p className="summary-note">Engineering hours are model estimates, not actual hours spent.</p>
+        <p className="summary-note">{effortNote(report.effort_basis)}</p>
       </Card>
       <details className="details calculation-details"><summary>Calculation details</summary>
         <div className="space-y-3 pt-1">
@@ -236,7 +239,7 @@ function Overview({ report, onSelect, onPeople }: { report: Report; onSelect: (p
 
 function People({ report, onMatch }: { report: Report; onMatch: (login: string, email: string) => void }) {
   return <>
-    <p className="text-sm leading-relaxed muted">Engineering hours are model estimates, not actual time spent. Spend includes each person's full gateway usage for this period.</p>
+    <p className="text-sm leading-relaxed muted">{effortNote(report.effort_basis)} Spend includes each person's full gateway usage for this period.</p>
     <div className="data-table"><Table>
       <TableHeader><TableRow><TableHead>Person</TableHead><TableHead className="text-right">Gateway spend</TableHead><TableHead className="text-right">Estimated hours</TableHead><TableHead className="text-right">Spend / est. hour</TableHead></TableRow></TableHeader>
       <TableBody>{report.people.map(person => <TableRow key={person.id}>
