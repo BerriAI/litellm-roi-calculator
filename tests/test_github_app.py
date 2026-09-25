@@ -32,7 +32,7 @@ def state_from(url):
 
 
 def begin_install(client, *, manifest=False):
-    result = client.post("/api/github/connect", json={"return_to": "setup"}).json()
+    result = client.post("/api/github/connect", json={"return_to": "setup", "mode": "manage"}).json()
     if manifest:
         response = client.get("/github/app/callback", params={"code": "test-code", "state": state_from(result["action"])}, follow_redirects=False)
         assert response.status_code == 303
@@ -131,6 +131,97 @@ def test_forged_or_suspended_installation_is_never_connected(tmp_path, app_crede
         assert "github=error" in response.headers["location"]
         assert not app.state.github_app.status()["connected"]
         assert ConfigStore(tmp_path).load().github_connection == "token"
+
+
+def test_reconnect_discovers_approved_accounts_without_reinstallation(tmp_path, app_credentials):
+    app = create_app(tmp_path)
+    save_private(app.state.github_app.path, app_credentials)
+    account = {"id": 7, "app_id": 123, "account": {"login": "company"}}
+
+    def handler(req):
+        if req.url.path == "/app/installations":
+            return httpx.Response(200, json=[account])
+        if req.url.path == "/login/oauth/access_token":
+            assert json.loads(req.content)["code_verifier"]
+            return httpx.Response(200, json={"access_token": "temporary-user-token"})
+        assert req.url.path == "/user/installations"
+        assert req.headers["authorization"] == "Bearer temporary-user-token"
+        if req.url.params["page"] == "1":
+            return httpx.Response(200, json={"installations": [
+                {**account, "id": 8, "app_id": 999}, {**account, "id": 9, "suspended_at": "2026-01-01"},
+            ]}, headers={"Link": '<next>; rel="next"'})
+        return httpx.Response(200, json={"installations": [account]})
+
+    app.state.github_app.transport = httpx.MockTransport(handler)
+    with TestClient(app, base_url="http://localhost") as client:
+        result = client.post("/api/github/connect", json={"return_to": "settings"}).json()
+        assert result["url"].startswith("https://github.com/login/oauth/authorize?")
+        assert not app.state.github_app.status()["connected"]  # Discovery is not consent.
+        response = client.get("/github/callback", params={"state": state_from(result["url"]), "code": "code"}, follow_redirects=False)
+        assert response.headers["location"] == "/?page=settings&github=connected"
+        assert app.state.github_app.load()["installations"] == [{"id": 7, "account": "company"}]
+        assert "temporary-user-token" not in (tmp_path / "github-app.json").read_text()
+        assert "temporary-user-token" not in client.cookies.get("roi_github", "")
+
+
+def test_reconnect_cannot_claim_another_users_installation(tmp_path, app_credentials):
+    app = create_app(tmp_path)
+    save_private(app.state.github_app.path, app_credentials)
+
+    def handler(req):
+        if req.url.path == "/app/installations":
+            return httpx.Response(200, json=[{"id": 7}])
+        if req.url.path == "/login/oauth/access_token":
+            return httpx.Response(200, json={"access_token": "user-token"})
+        assert req.url.path == "/user/installations"
+        return httpx.Response(200, json={"installations": []})
+
+    app.state.github_app.transport = httpx.MockTransport(handler)
+    with TestClient(app, base_url="http://localhost") as client:
+        result = client.post("/api/github/connect", json={}).json()
+        response = client.get("/github/callback", params={"state": state_from(result["url"]), "code": "code"}, follow_redirects=False)
+        assert response.headers["location"].startswith("https://github.com/apps/test-roi-app/installations/new?")
+        assert not app.state.github_app.status()["connected"]
+        assert ConfigStore(tmp_path).load().github_connection == "token"
+
+
+def test_approval_wait_can_be_checked_without_restarting_installation(tmp_path, app_credentials):
+    app = create_app(tmp_path)
+    save_private(app.state.github_app.path, app_credentials)
+
+    def handler(req):
+        assert req.url.path == "/app/installations"
+        return httpx.Response(200, json=[])
+
+    app.state.github_app.transport = httpx.MockTransport(handler)
+    with TestClient(app, base_url="http://localhost") as client:
+        state = begin_install(client)
+        response = client.get("/github/installed", params={"state": state, "setup_action": "request"}, follow_redirects=False)
+        assert response.headers["location"] == "/?page=setup&github=pending"
+        assert client.post("/api/github/connect", json={"mode": "check"}).json() == {"pending": True}
+        assert not app.state.github_app.status()["connected"]
+        result = client.post("/api/github/connect", json={}).json()
+        assert result["url"].startswith("https://github.com/apps/test-roi-app/installations/new?")
+
+
+@pytest.mark.parametrize("attack", ["wrong_state", "expired", "no_cookie"])
+def test_reconnect_checks_state_before_exchanging_code(tmp_path, app_credentials, attack):
+    app = create_app(tmp_path)
+    save_private(app.state.github_app.path, app_credentials)
+    app.state.github_app.transport = httpx.MockTransport(lambda req: httpx.Response(200, json=[{"id": 7}]))
+    with TestClient(app, base_url="http://localhost") as client:
+        result = client.post("/api/github/connect", json={}).json()
+        state = state_from(result["url"])
+        if attack == "wrong_state":
+            state = "forged"
+        elif attack == "expired":
+            app.state.github_app.pending[state] = time.time() - 1
+        else:
+            client.cookies.clear()
+        app.state.github_app.transport = httpx.MockTransport(lambda req: pytest.fail("Untrusted callback reached GitHub"))
+        response = client.get("/github/callback", params={"state": state, "code": "code"}, follow_redirects=False)
+        assert "github=error" in response.headers["location"]
+        assert not app.state.github_app.status()["connected"]
 
 
 async def test_background_tokens_refresh_and_repository_scope(tmp_path, app_credentials, private_key):

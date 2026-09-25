@@ -135,14 +135,38 @@ class GitHubApp:
         state = self.begin(req, "install")
         return f"https://github.com/apps/{slug}/installations/new?{urlencode({'state': state})}"
 
+    async def has_installations(self):
+        # Approval may happen in an owner's browser. Discovery alone never
+        # connects an account: we still verify access using the user's token.
+        async with self.client(self.app_token()) as client:
+            for page in range(1, 101):
+                response = await request(client, "GET", "app/installations", params={"page": page, "per_page": 100})
+                if any(not item.get("suspended_at") for item in payload(response)):
+                    return True
+                if 'rel="next"' not in response.headers.get("link", ""):
+                    return False
+        raise SourceError("GitHub returned too many installations. Try managing access on GitHub.")
+
+    def oauth_redirect(self, req: Request, base: str, installation_id=None):
+        req.session.pop("installation", None)
+        if installation_id is not None:
+            req.session["installation"] = installation_id
+        state = self.begin(req, "oauth")
+        verifier = secrets.token_urlsafe(48)
+        req.session["verifier"] = verifier
+        challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+        query = urlencode({"client_id": self.load()["client_id"], "redirect_uri": base + "/github/callback",
+            "state": state, "code_challenge": challenge, "code_challenge_method": "S256"})
+        return "https://github.com/login/oauth/authorize?" + query
+
     def install(self, app: FastAPI, config, origin, *, secure: bool):
         app.add_middleware(SessionMiddleware, secret_key=self.session_secret,
             session_cookie="__Host-roi_github" if secure else "roi_github",
             max_age=1800, same_site="lax", https_only=secure)
 
-        def destination(req, error=""):
+        def destination(req, error="", *, pending=False):
             route = "/?" + urlencode({"page": req.session.pop("return_to", "setup"),
-                "github": "error" if error else "connected", **({"reason": error} if error else {})})
+                "github": "pending" if pending else "error" if error else "connected", **({"reason": error} if error else {})})
             return RedirectResponse(route, status_code=303)
 
         @app.get("/api/github/app")
@@ -154,6 +178,11 @@ class GitHubApp:
             body = await req.json()
             req.session["return_to"] = "settings" if body.get("return_to") == "settings" else "setup"
             if self.ready:
+                if body.get("mode") != "manage":
+                    if await self.has_installations():
+                        return {"url": self.oauth_redirect(req, origin(req))}
+                    if body.get("mode") == "check":
+                        return {"pending": True}
                 return {"url": self.install_redirect(req)}
             base = origin(req)
             state = self.begin(req, "manifest")
@@ -189,15 +218,8 @@ class GitHubApp:
                 self.consume(req, "install")
                 installation = req.query_params.get("installation_id", "")
                 if not installation.isdigit():
-                    return destination(req, "approval")
-                req.session["installation"] = int(installation)
-                state = self.begin(req, "oauth")
-                verifier = secrets.token_urlsafe(48)
-                req.session["verifier"] = verifier
-                challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
-                query = urlencode({"client_id": self.load()["client_id"], "redirect_uri": origin(req) + "/github/callback",
-                    "state": state, "code_challenge": challenge, "code_challenge_method": "S256"})
-                return RedirectResponse("https://github.com/login/oauth/authorize?" + query, status_code=303)
+                    return destination(req, pending=True)
+                return RedirectResponse(self.oauth_redirect(req, origin(req), int(installation)), status_code=303)
             except SourceError:
                 return destination(req, "expired")
 
@@ -208,7 +230,7 @@ class GitHubApp:
                 code = req.query_params.get("code", "")
                 verifier = req.session.pop("verifier", "")
                 installation_id = req.session.pop("installation", None)
-                if not code or not verifier or not installation_id:
+                if not code or not verifier:
                     raise SourceError("GitHub connection was not completed.")
                 data = self.load()
                 async with self.client(oauth=True) as client:
@@ -217,19 +239,27 @@ class GitHubApp:
                         "redirect_uri": origin(req) + "/github/callback", "code_verifier": verifier}))
                 if not result.get("access_token"):
                     raise SourceError("GitHub did not authorize this connection.")
-                found = None
+                found = []
                 # Check membership using the user token, never trust a callback's installation ID.
                 async with self.client(result["access_token"]) as client:
                     for page in range(1, 101):
                         response = await request(client, "GET", "user/installations", params={"page": page, "per_page": 100})
                         for item in payload(response)["installations"]:
-                            if item["id"] == installation_id and str(item["app_id"]) == str(data["id"]) and not item.get("suspended_at"):
-                                found = {"id": item["id"], "account": item["account"]["login"]}
-                        if found or 'rel="next"' not in response.headers.get("link", ""):
+                            if ((installation_id is None or item["id"] == installation_id)
+                                and str(item["app_id"]) == str(data["id"]) and not item.get("suspended_at")):
+                                found.append({"id": item["id"], "account": item["account"]["login"]})
+                        if (installation_id is not None and found) or 'rel="next"' not in response.headers.get("link", ""):
                             break
+                    else:
+                        raise SourceError("GitHub returned too many accounts. Connect one account at a time.")
                 if not found:
+                    if installation_id is None:
+                        return RedirectResponse(self.install_redirect(req), status_code=303)
                     raise SourceError("This GitHub installation is not available to your account.")
-                data["installations"] = [i for i in data.get("installations", []) if i["id"] != found["id"]] + [found]
+                data = self.load()
+                installations = {item["id"]: item for item in data.get("installations", [])}
+                installations.update({item["id"]: item for item in found})
+                data["installations"] = list(installations.values())
                 save_private(self.path, data)
                 self.tokens.clear()
                 self.repo_installations.clear()

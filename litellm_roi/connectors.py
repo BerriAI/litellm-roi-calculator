@@ -130,20 +130,16 @@ class Gateway:
 
 
 class GitHub:
-    def __init__(self, settings: Settings, transport=None, token_provider=None, user_token_provider=None):
+    def __init__(self, settings: Settings, transport=None, token_provider=None):
         self.token_provider = token_provider
-        self.user_token_provider = user_token_provider
         headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
-        if settings.github_token and token_provider is None and user_token_provider is None:
+        if settings.github_token and token_provider is None:
             headers["Authorization"] = f"Bearer {settings.github_token}"
 
         async def authorize(req):
-            if token_provider is not None or user_token_provider is not None:
+            if token_provider is not None:
                 if req.url.scheme != "https" or req.url.host != "api.github.com" or req.url.port not in (None, 443):
                     raise SourceError("GitHub connections use https://api.github.com. Use Advanced for Enterprise Server.")
-                if user_token_provider is not None:
-                    req.headers["Authorization"] = "Bearer " + await user_token_provider()
-                    return
                 parts = req.url.path.strip("/").split("/")
                 if len(parts) >= 3 and parts[0] == "repos":
                     req.headers["Authorization"] = "Bearer " + await token_provider("/".join(parts[1:3]))
@@ -218,9 +214,7 @@ class GitHub:
 
     async def commit_metadata(self, repo: str, number: int, detail: dict) -> tuple[list, list, int]:
         authorization = self.client.headers.get("Authorization", "")
-        if self.user_token_provider:
-            authorization = "Bearer " + await self.user_token_provider()
-        elif self.token_provider:
+        if self.token_provider:
             authorization = "Bearer " + await self.token_provider(repo)
         commits, authors = [], []
         if not authorization:

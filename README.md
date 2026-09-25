@@ -44,7 +44,7 @@ Open http://localhost:8787. Configuration and reports persist in the `roi-data` 
 A fresh workspace opens directly into a three-step setup. There is no automatic sample-data fallback. Demo data is available only with `--demo` or `?demo=1`.
 
 1. **Gateway:** your LiteLLM proxy URL and an admin or read-only admin key with access to `/user/list` and `/user/daily/activity`. Choose a dedicated inference key for estimates when using a read-only admin key.
-2. **Repositories:** click **Connect GitHub**, authorize your account, and select repositories. No GitHub App installation is needed. The host configures OAuth once per calculator (see below). Private and internal repos are supported; organization policies still apply. Manual tokens and GitHub Enterprise configuration are under **Advanced**.
+2. **Repositories:** click **Connect GitHub** and follow GitHub's guided App setup, then select repositories. Credentials are configured automatically; there are no client IDs or secrets to copy. The App requests read-only access to the repositories you allow. Private and internal repos are supported; organization policies still apply. Manual tokens and GitHub Enterprise configuration are under **Advanced**.
 3. **Estimator:** select or enter a model deployment on your gateway; available models load automatically. We recommend a small model, such as GPT Luna or Claude Haiku. The model must accept `temperature: 0` and JSON-object output. The default prompt and optional separate inference key are under **Advanced options**.
 4. **Backfill and updates:** start with the **past week** (7 days), or choose a rolling history window of 1–3,650 days. The update interval defaults to 60 minutes. Set it to **0 for manual only**, or at least 5 minutes for automatic updates. Both controls are available during setup and in Settings afterward.
 5. Click **Start backfill**. A progress bar shows import activity, then the percentage and count of PRs processed. Up to three PRs are processed concurrently, including their model estimates. The dashboard opens when the first report is ready. You can reload the page during backfill, cancel it, or retry after an error. Later syncs also show a progress bar.
@@ -63,19 +63,15 @@ Public repositories can be entered manually without a token, subject to GitHub�
 
 ### GitHub connection
 
-**Connect GitHub → authorize → choose repositories.** The picker lists repositories available to the connected account, including personal and company repositories. Use search, **Select shown**, and **Load more repositories** for larger lists. Connecting another GitHub account replaces the workspace's OAuth connection; choose an account with access to all the repositories you want to measure.
+**Connect GitHub** opens a prefilled GitHub App registration for this deployment. Confirm it on GitHub, choose your account and repository access, and return to the repository picker. The App's credentials are exchanged automatically and kept on the server. You do not need to copy a client ID, client secret, or private key. The App requests only read access to Contents, Pull requests, and Metadata; it does not subscribe to webhooks or modify code.
 
-The person hosting the calculator configures OAuth **once**, not once per user:
+After installation, GitHub asks you to authorize the connection so the calculator can verify that the installation belongs to an account you can access. This temporary user token is not saved. Background updates use short-lived installation tokens that renew automatically. On reconnect, already-approved installations are discovered and verified without asking you to install them again.
 
-1. [Register a GitHub OAuth app](https://github.com/settings/applications/new). Use the calculator's URL as its homepage and `<your-origin>/github/oauth/callback` as the authorization callback URL. Locally, the default callback is `http://localhost:8787/github/oauth/callback`.
-2. In the calculator, click **Connect GitHub** and enter the client ID and client secret in the one-time setup. Alternatively, set `GITHUB_OAUTH_CLIENT_ID` and `GITHUB_OAUTH_CLIENT_SECRET` on the server. After configuration, changes to these credentials are managed on the server.
-3. Connect your GitHub account and choose the repositories to measure. No installation or webhooks are required.
+Each connected installation shares its approved repositories with this calculator workspace. Click **Manage access** to connect another account or change available repositories. Use search, **Select shown**, and **Load more repositories** in the picker. You can select repositories across connected accounts.
 
-GitHub OAuth requires the **`repo` scope** to read private/internal repositories. That scope also grants write permissions; the calculator only reads GitHub data. It requests `offline_access` to renew expiring tokens automatically for background updates. OAuth credentials and access/refresh tokens stay on the server, are never returned through the API, and can only be sent to GitHub's fixed HTTPS endpoints. Reconnect if access is revoked or the refresh token expires. Replacing the server's OAuth client ID requires reconnecting the account.
+If GitHub shows **Request** instead of **Install**, an organization owner needs to approve the requested access. Once approved, click **Check access** to continue. Public repositories can also be entered under **Advanced connection settings** without a token, subject to anonymous API rate limits. Enterprise servers use the manual token connection under Advanced.
 
-Company approval is required only when the organization's OAuth policy requires it. If company repositories are missing, have an owner approve the OAuth integration and reconnect. Public repositories can be entered under **Advanced connection settings** without authentication, subject to anonymous API rate limits. Enterprise servers use the manual token connection under Advanced.
-
-This connects repositories to one shared calculator workspace; **it does not add dashboard login or separate users' reports**. Existing GitHub App connections continue to work until you choose OAuth. Their read permissions and renewing installation tokens are unchanged.
+This connects repositories to one shared calculator workspace; **it does not add dashboard login or separate users' reports**. No separately registered OAuth app is needed. To use an existing GitHub App, configure `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET`, and `GITHUB_APP_PRIVATE_KEY` on the server. Set its callback URL to `<your-origin>/github/callback`, setup URL to `<your-origin>/github/installed`, disable webhooks and OAuth-on-install, and grant the read permissions above.
 
 ### Optional environment configuration
 
@@ -92,8 +88,6 @@ When a gateway key is supplied through the environment, the gateway URL is also 
 | `GITHUB_TOKEN` | GitHub token, optional for public repositories |
 | `GITHUB_REPOS` | Comma-separated repository names |
 | `GITHUB_API_URL` | Optional Enterprise API URL, e.g. `https://github.example.com/api/v3` |
-| `GITHUB_OAUTH_CLIENT_ID` | GitHub OAuth app client ID, configured once by the host |
-| `GITHUB_OAUTH_CLIENT_SECRET` | GitHub OAuth app client secret; never sent to the browser |
 | `ROI_DATA_DIR` | Data location; defaults to `~/.litellm-roi` |
 | `ROI_PUBLIC_URL` | HTTPS origin when hosted; Render supplies `RENDER_EXTERNAL_URL` automatically |
 
@@ -139,7 +133,7 @@ In **People**, click **Match email** to connect a GitHub username to a gateway e
 
 The app reads GitHub repositories and gateway accounting data. It writes only local configuration/reports and makes inference calls to your chosen gateway. No data is sent to a separate analytics service.
 
-**PR titles, descriptions, file change counts, and commit messages and statistics are sent to your configured estimator model through the gateway.** Code patches are excluded; descriptions and commit messages may themselves contain code or sensitive text. Your gateway/provider's handling applies. Tokens are never returned to the browser. Local `config.json`, `github-oauth.json`, and legacy `github-app.json` store credentials in plaintext with owner-only permissions (`0600`); protect the machine and data-directory backups. Environment-supplied OAuth client secrets are not copied into the saved file. GitHub connection state uses a short-lived HttpOnly, SameSite cookie (Secure when hosted); it is not a dashboard login session. SQLite stores report metadata, email matches, model reasoning, and cached estimates. Raw patches and full descriptions and commit messages are not persisted by this application.
+**PR titles, descriptions, file change counts, and commit messages and statistics are sent to your configured estimator model through the gateway.** Code patches are excluded; descriptions and commit messages may themselves contain code or sensitive text. Your gateway/provider's handling applies. Tokens are never returned to the browser. Local `config.json` and `github-app.json` store credentials in plaintext with owner-only permissions (`0600`); protect the machine and data-directory backups. GitHub connection state uses a short-lived HttpOnly, SameSite cookie (Secure when hosted); it is not a dashboard login session. SQLite stores report metadata, email matches, model reasoning, and cached estimates. Raw patches and full descriptions and commit messages are not persisted by this application.
 
 The app binds to `127.0.0.1` by default and uses no CDN assets. Locally it rejects non-local Host headers; hosted deployments accept only their configured public origin and reject cross-origin API requests. `--host 0.0.0.0` supports Docker or hosting. This is one shared workspace, not a multi-tenant service.
 
