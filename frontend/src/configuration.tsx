@@ -3,13 +3,17 @@ import type { Settings } from "./api";
 
 export type FormValues = {
   gateway_url: string; admin_key: string; estimator_key: string; github_token: string;
-  github_api_url: string; github_connection: string; repos: string; estimator_model: string; estimator_prompt: string;
+  git_provider: string; github_api_url: string; github_connection: string;
+  azure_devops_org: string; azure_devops_pat: string;
+  repos: string; estimator_model: string; estimator_prompt: string;
   backfill_days: string; update_interval_hours: string;
 };
 
 export const formValues = (s: Settings): FormValues => ({
   gateway_url: s.gateway_url, admin_key: "", estimator_key: "", github_token: "",
-  github_api_url: s.github_api_url, github_connection: s.github_connection, repos: s.repos.join("\n"), estimator_model: s.estimator_model,
+  git_provider: s.git_provider, github_api_url: s.github_api_url, github_connection: s.github_connection,
+  azure_devops_org: s.azure_devops_org, azure_devops_pat: "",
+  repos: s.repos.join("\n"), estimator_model: s.estimator_model,
   estimator_prompt: s.estimator_prompt, backfill_days: String(s.backfill_days),
   update_interval_hours: String(s.update_interval_minutes / 60),
 });

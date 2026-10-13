@@ -10,12 +10,12 @@ from .storage import Store
 
 
 def cache_key(settings: Settings, context: str, repo: str, pr: dict) -> str | None:
-    head = (pr.get("head") or {}).get("sha")
-    if not head or "title" not in pr or "body" not in pr or not (pr.get("user") or {}).get("login"):
+    head = pr.get("head_sha")
+    if not head or "title" not in pr or "body" not in pr or not pr.get("login"):
         return None
     # updated_at includes comments/labels, which do not change the evidence.
-    value = ["pull-v1", settings.github_api_url.rstrip("/"), context, repo.casefold(), pr["number"],
-        head, pr["title"], pr["body"] or "", pr["user"]["login"].casefold()]
+    value = ["pull-v1", settings.cache_source.rstrip("/"), context, repo.casefold(), pr["number"],
+        head, pr["title"], pr["body"] or "", pr["login"].casefold()]
     return hashlib.sha256(json.dumps(value, ensure_ascii=False).encode()).hexdigest()
 
 
@@ -43,11 +43,15 @@ def legacy_match(settings: Settings, previous: dict, cached: dict, pr: dict) -> 
     estimate = cached.get("estimate", {})
     if estimate.get("status") != "estimated" or estimate.get("evidence_source") != "pr_metadata" or estimate.get("effort_basis") != "without_ai":
         return False
-    api_host = urlsplit(settings.github_api_url).hostname or ""
-    web_host = "github.com" if api_host == "api.github.com" else api_host.removeprefix("api.")
+    source = urlsplit(settings.cache_source)
+    if settings.git_provider == "azure_devops":
+        web_host = "dev.azure.com"
+    else:
+        api_host = source.hostname or ""
+        web_host = "github.com" if api_host == "api.github.com" else api_host.removeprefix("api.")
     if urlsplit(cached.get("url", "")).hostname != web_host:
         return False
-    if cached.get("head_sha") != (pr.get("head") or {}).get("sha") or cached.get("title") != pr.get("title") or cached.get("login", "").casefold() != (pr.get("user") or {}).get("login", "").casefold():
+    if cached.get("head_sha") != pr.get("head_sha") or cached.get("title") != pr.get("title") or cached.get("login", "").casefold() != pr.get("login", "").casefold():
         return False
     try:
         return datetime.fromisoformat(pr["updated_at"]) <= previous["synced_at"]

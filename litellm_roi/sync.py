@@ -3,8 +3,9 @@ from datetime import date, datetime, timedelta, timezone
 from time import monotonic
 
 from .config import Settings
-from .connectors import Gateway, GitHub, SourceError
+from .connectors import Gateway, SourceError
 from .estimator import Estimator
+from .git_provider import git_provider_from_settings
 from .pull_cache import cache_key, legacy_match, legacy_report
 from .storage import Store
 
@@ -23,9 +24,9 @@ def window(settings: Settings) -> tuple[date, date]:
 
 
 class SyncManager:
-    def __init__(self, store: Store, github_factory=None):
+    def __init__(self, store: Store, provider_factory=None):
         self.store = store
-        self.github_factory = github_factory
+        self.provider_factory = provider_factory
         self.task: asyncio.Task | None = None
         self.state = IDLE_STATE.copy()
         self.next_update: datetime | None = None
@@ -79,7 +80,7 @@ class SyncManager:
 
     async def run(self, settings: Settings):
         gateway = Gateway(settings)
-        github = self.github_factory(settings) if self.github_factory and settings.github_connection == "app" else GitHub(settings)
+        provider = self.provider_factory(settings) if self.provider_factory else git_provider_from_settings(settings)
         estimator = Estimator(settings, self.store)
         context = estimator.cache_context()
         try:
@@ -89,7 +90,7 @@ class SyncManager:
             self.state["phase"] = "repositories"
             for repo in settings.repos:
                 self.state["stage"] = f"Reading {repo}"
-                queue.extend((repo, pr) for pr in await github.pulls(repo, start, end))
+                queue.extend((repo, pr) for pr in await provider.pulls(repo, start, end))
             pulls = [None] * len(queue)
             previous = legacy_report(self.store, settings)
             previous_pulls = {(p["repo"].casefold(), p["number"]): p for p in previous.get("pulls", [])} if previous else {}
@@ -113,14 +114,13 @@ class SyncManager:
 
             async def worker():
                 for index, (repo, pr) in pending:
-                    evidence = await github.evidence(repo, pr)
+                    evidence = await provider.evidence(repo, pr)
                     try:
                         estimate = await estimator.estimate(evidence)
                     except SourceError as exc:
                         estimate = {"status": "error", "hours": None, "reasoning": str(exc)}
                     # Key the fetched evidence, which may have changed since listing.
-                    key = cache_key(settings, context, repo, {**evidence,
-                        "head": {"sha": evidence.get("head_sha")}, "user": {"login": evidence.get("login")}})
+                    key = cache_key(settings, context, repo, evidence)
                     evidence.pop("files")
                     evidence.pop("body")
                     evidence.pop("commits", None)
@@ -160,7 +160,7 @@ class SyncManager:
             self.state["running"] = False
             self.finished_at = monotonic()
             self.schedule(settings)
-            await asyncio.gather(gateway.close(), github.close(), estimator.close())
+            await asyncio.gather(gateway.close(), provider.close(), estimator.close())
 
 
 def demo_report() -> dict:

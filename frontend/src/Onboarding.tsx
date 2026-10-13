@@ -6,13 +6,15 @@ import { TextPicker } from "./TextPicker";
 import { Textarea } from "@/components/ui/textarea";
 import { api, errorMessage, type AppState, type Settings } from "./api";
 import { Field, formValues, settingsUpdate, type FormValues } from "./configuration";
-import { GitHubConnection, githubConnectionFields } from "./GitHubConnection";
+import { GitConnection } from "./GitConnection";
+import { githubConnectionFields } from "./GitHubConnection";
+import { azureDevOpsConnectionFields } from "./AzureDevOpsConnection";
 import { SyncProgress } from "./SyncProgress";
 
 const steps = ["Gateway", "Repositories", "Estimator & sync"];
 const stepFields = [
   ["gateway_url", "admin_key"],
-  [...githubConnectionFields, "repos"],
+  [...githubConnectionFields, ...azureDevOpsConnectionFields, "repos"],
   ["estimator_model", "estimator_prompt", "estimator_key", "backfill_days", "update_interval_hours"],
 ];
 
@@ -119,8 +121,8 @@ export function Onboarding({ state, refresh, connectionError }: {
               <Field label="Admin key" locked={locked("admin_key")} help="Use an admin or read-only admin key with access to user spend.">
                 {input("admin_key", "password", saved.has_admin_key ? "Saved. Leave blank to keep." : "sk-…", !saved.has_admin_key)}
               </Field>
-            </> : step === 1 ? <GitHubConnection values={values} saved={saved} locked={locked} update={update}
-              saveConnection={() => save(githubConnectionFields)} onBusy={setBusy} /> : <>
+            </> : step === 1 ? <GitConnection values={values} saved={saved} locked={locked} update={update}
+              save={save} onBusy={setBusy} /> : <>
               <Field label="Estimator model" locked={locked("estimator_model")}>
                 <TextPicker items={models} name="estimator_model" required value={values.estimator_model} disabled={locked("estimator_model")}
                   onChange={value => update("estimator_model", value)} placeholder="Choose or enter a model from your gateway" />

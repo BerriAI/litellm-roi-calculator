@@ -1,6 +1,6 @@
 # LiteLLM ROI Calculator
 
-Connect your LiteLLM gateway and GitHub repositories to compare **AI spend with estimated engineering hours without AI assistance**.
+Connect your LiteLLM gateway and GitHub or Azure DevOps repositories to compare **AI spend with estimated engineering hours without AI assistance**.
 
 The calculator reads spend per user, estimates the work in merged PRs with a model you choose, and matches people by email. These are estimates of engineering effort—not actual hours worked, hours saved, or a claim of financial return.
 
@@ -30,15 +30,19 @@ Enter your **gateway URL** and an **admin or read-only admin key** that can read
 
 If your read-only key cannot call models, add a separate inference key under **Advanced options** in step 3. A dedicated service user also keeps the calculator’s estimation costs separate from engineers’ spend.
 
-## 2. Connect GitHub and choose repositories
+## 2. Connect repositories
 
-Click **Connect GitHub**. GitHub walks you through creating a read-only App for this calculator and choosing which repositories it can access. Return to the calculator and select your repositories—there are no client IDs or secrets to copy.
+The calculator supports GitHub and Azure DevOps (Repos). Choose the **Repository host** in this step.
+
+**GitHub:** click **Connect GitHub**. GitHub walks you through creating a read-only App for this calculator and choosing which repositories it can access. Return to the calculator and select your repositories—there are no client IDs or secrets to copy.
 
 ![GitHub repository picker with two sample repositories selected](docs/images/setup-repositories.png)
 
 - **Company repositories:** choose your organization in **GitHub account**. If GitHub requires approval, ask an organization owner to approve it, then click **Check access** or **Refresh access**.
 - **Use the upstream repository:** select `BerriAI/litellm` if that is where PRs are merged. A personal fork does not inherit its upstream PR history.
 - **More control:** use **Manage access** to change GitHub permissions. Tokens and GitHub Enterprise Server are under **Advanced connection settings**.
+
+**Azure DevOps:** enter your **organization** and a **personal access token** with the Code (Read) scope, then click **Browse repos** to select `project/repo` entries—optionally narrowed to one project.
 
 Click **Continue**. [Company and Enterprise connection details →](docs/reference.md#company-github-connections)
 

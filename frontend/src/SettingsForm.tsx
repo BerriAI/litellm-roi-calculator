@@ -5,7 +5,7 @@ import { TextPicker } from "./TextPicker";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { api, errorMessage, type AppState, type Settings } from "./api";
-import { GitHubConnection, githubConnectionFields } from "./GitHubConnection";
+import { GitConnection } from "./GitConnection";
 import { Field, formValues, settingsUpdate, type FormValues } from "./configuration";
 
 export function SettingsForm({ state, refresh, onSync }: {
@@ -75,9 +75,9 @@ export function SettingsForm({ state, refresh, onSync }: {
         </div>
       </section>
       <section className="form-section">
-        <h2>GitHub</h2>
-        <GitHubConnection values={values} saved={saved} locked={locked} update={update}
-          saveConnection={() => save(githubConnectionFields)} onBusy={value => setBusy(value ? "repos" : "")} />
+        <h2>Repositories</h2>
+        <GitConnection values={values} saved={saved} locked={locked} update={update}
+          save={save} onBusy={value => setBusy(value ? "repos" : "")} />
       </section>
       <section className="form-section">
         <h2>Estimator</h2>
@@ -130,7 +130,7 @@ export function SettingsForm({ state, refresh, onSync }: {
     <Dialog open={resetOpen} onOpenChange={setResetOpen}>
       <DialogContent>
         <DialogHeader><DialogTitle>Restart setup?</DialogTitle>
-          <DialogDescription>Clear reports and repository selections, then return to setup. Saved gateway and GitHub connections stay connected. Cached estimates can be reused.</DialogDescription></DialogHeader>
+          <DialogDescription>Clear reports and repository selections, then return to setup. Saved gateway and repository host connections stay connected. Cached estimates can be reused.</DialogDescription></DialogHeader>
         <DialogFooter>
           <Button type="button" variant="outline" disabled={!!busy} onClick={() => setResetOpen(false)}>Cancel</Button>
           <Button type="button" disabled={!!busy} onClick={() => void resetSetup()}>{busy === "reset" ? "Resetting…" : "Restart setup"}</Button>

@@ -22,10 +22,14 @@ RESPONSE_CONTRACT = (
 
 def metadata_evidence(pr: dict) -> dict:
     """Explicit fields keep code patches and contributor emails out of inference."""
+    changes = {}
+    for source, target in (("additions", "additions"), ("deletions", "deletions"),
+            ("changed_files", "files"), ("commit_count", "commits")):
+        if source in pr:
+            changes[target] = pr[source]
     return {"repo": pr["repo"], "number": pr["number"], "title": pr["title"], "body": pr["body"],
-        "changes": {"additions": pr["additions"], "deletions": pr["deletions"],
-            "files": pr["changed_files"], "commits": pr["commit_count"]},
-        "files": [{k: item.get(k) for k in ("filename", "status", "additions", "deletions")} for item in pr["files"]],
+        "changes": changes,
+        "files": [{k: item[k] for k in ("filename", "status", "additions", "deletions") if k in item} for item in pr["files"]],
         "commits": [{k: item[k] for k in ("sha", "message", "additions", "deletions", "changed_files") if k in item}
             for item in pr["commits"]]}
 

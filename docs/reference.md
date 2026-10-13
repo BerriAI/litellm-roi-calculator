@@ -12,6 +12,16 @@ Start with the [visual setup guide](../README.md). This page covers company GitH
 
 Public repositories can be entered manually without a token, subject to GitHub’s lower anonymous rate limits. GitHub email visibility can be restricted in company accounts; use **People → Match email** when an automatic match is unavailable.
 
+## Azure DevOps connections
+
+Select **Azure DevOps** as the Repository host during setup or in Settings, then enter your **organization** (the segment in `https://dev.azure.com/organization`) and a **personal access token** with the Code (Read) scope over the projects you measure. The recommendation is a short-lived company-approved PAT; the app only reads data and never follows redirects with credentials.
+
+- **Repository picker:** leave Project blank to browse repositories across the organization, or enter one project to narrow the list. Repositories are referenced as `project/repo`; full `https://dev.azure.com/{org}/{project}/_git/{repo}` URLs are accepted.
+- **Identities:** PR authors are matched to gateway emails through the Azure DevOps account email (`uniqueName`) and the author's own commit emails, the same rule GitHub uses. Display names can differ from gateway emails; use **People → Match email** to map a display name manually.
+- **Merge window:** completed pull requests are selected by close date. To bound the query, the API is asked for PRs created up to 30 days before the window and merged PRs are then filtered locally by close date — a PR opened more than 30 days before the window and merged inside it may be missed.
+- **Line counts:** Azure DevOps does not publish per-file line additions and deletions through its REST API. Estimates on Azure Repos use PR description, per-file change types, and file/commit counts without line totals.
+- Azure DevOps Server (on-premises) is not supported; the provider targets `dev.azure.com` with API version 7.1.
+
 ### GitHub connection
 
 **Connect GitHub** opens a prefilled GitHub App registration for this deployment. Confirm it on GitHub, choose your account and repository access, and return to the repository picker. The App's credentials are exchanged automatically and kept on the server. You do not need to copy a client ID, client secret, or private key. The App requests only read access to Contents, Pull requests, and Metadata; it does not subscribe to webhooks or modify code.
@@ -28,7 +38,7 @@ This connects repositories to one shared calculator workspace; **it does not add
 
 Copy [`.env.example`](../.env.example) to `.env` and uncomment the fields you want to manage through your environment. Nonempty environment values override dashboard settings and are labeled in the UI. Empty or whitespace-only values are ignored, leaving those fields editable in the dashboard. Never commit credentials.
 
-When a gateway key is supplied through the environment, the gateway URL is also server-managed: set `LITELLM_GATEWAY_URL` on the server. Likewise, an environment-supplied `GITHUB_TOKEN` locks the GitHub API URL; set `GITHUB_API_URL` on the server for Enterprise. The API rejects destination changes, so public settings cannot redirect an environment credential. Environment-supplied keys are not copied into `config.json` when settings are saved. Changing a dashboard-configured destination clears its saved keys, and authenticated connections do not follow redirects.
+When a gateway key is supplied through the environment, the gateway URL is also server-managed: set `LITELLM_GATEWAY_URL` on the server. Likewise, an environment-supplied `GITHUB_TOKEN` locks the GitHub API URL; set `GITHUB_API_URL` on the server for Enterprise. An environment-supplied `AZURE_DEVOPS_PAT` locks `AZURE_DEVOPS_ORG` the same way. The API rejects destination changes, so public settings cannot redirect an environment credential. Environment-supplied keys are not copied into `config.json` when settings are saved. Changing a dashboard-configured destination clears its saved keys, and authenticated connections do not follow redirects.
 
 | Variable | Purpose |
 | --- | --- |
@@ -36,9 +46,12 @@ When a gateway key is supplied through the environment, the gateway URL is also 
 | `LITELLM_ADMIN_KEY` | Read users, activity, and available models |
 | `LITELLM_ESTIMATOR_KEY` | Optional separate inference key; falls back to admin key |
 | `LITELLM_ESTIMATOR_MODEL` | Exact model/deployment name on the gateway |
+| `GIT_PROVIDER` | `github` (default) or `azure_devops` |
 | `GITHUB_TOKEN` | GitHub token, optional for public repositories |
 | `GITHUB_REPOS` | Comma-separated repository names |
 | `GITHUB_API_URL` | Optional Enterprise API URL, e.g. `https://github.example.com/api/v3` |
+| `AZURE_DEVOPS_ORG` | Azure DevOps organization name |
+| `AZURE_DEVOPS_PAT` | Azure DevOps personal access token with Code (Read) |
 | `ROI_DATA_DIR` | Data location; defaults to `~/.litellm-roi` |
 | `ROI_PUBLIC_URL` | HTTPS origin when hosted; Render supplies `RENDER_EXTERNAL_URL` automatically |
 
@@ -46,7 +59,7 @@ The default prompt is intentionally simple and contains no hour anchors or examp
 
 > Estimate how many hours it would take an engineer to complete the work in this pull request without AI assistance. Explain your estimate briefly.
 
-The application keeps the no-AI-assistance baseline in its response contract, including when using a custom prompt, and asks the estimator to summarize the apparent changes and explain its estimate using the supplied metadata. Every request uses **temperature 0**. Evidence includes the PR title and description, net additions and deletions, filenames and change counts per file, and commit messages with their full descriptions. Authenticated connections also include per-commit change counts. Code patches, elapsed PR duration, and suggested hour ranges are excluded. Commit totals can overlap and are not added to the PR's net totals. Models that do not support temperature 0 are not silently given a different temperature.
+The application keeps the no-AI-assistance baseline in its response contract, including when using a custom prompt, and asks the estimator to summarize the apparent changes and explain its estimate using the supplied metadata. Every request uses **temperature 0**. Evidence includes the PR title and description, net additions and deletions, filenames and change counts per file, and commit messages with their full descriptions. On Azure DevOps — where the REST API does not expose line counts — evidence uses per-file change types and file/commit counts instead of line totals. Authenticated connections also include per-commit change counts. Code patches, elapsed PR duration, and suggested hour ranges are excluded. Commit totals can overlap and are not added to the PR's net totals. Models that do not support temperature 0 are not silently given a different temperature.
 
 This is a metadata-based assessment. It relies on the accuracy of PR descriptions and commit messages and does not verify the implementation or code quality.
 
@@ -67,9 +80,9 @@ Spend per estimated hour = matched gateway spend / matched estimated engineering
 
 ### Matching people
 
-Gateway users are matched by email to the PR author's public profile email or commit emails **associated with that same GitHub account**. Matching trims whitespace and ignores case. It does not guess from names, strip email aliases, or use another contributor's commit email. GitHub noreply addresses and ambiguous matches remain unmatched.
+Gateway users are matched by email to the PR author's public profile email (or Azure DevOps account email) or commit emails **associated with that same repository account**. Matching trims whitespace and ignores case. It does not guess from names, strip email aliases, or use another contributor's commit email. GitHub noreply addresses and ambiguous matches remain unmatched.
 
-In **People**, click **Match email** to connect a GitHub username to a gateway email. Manual overrides take priority and immediately recalculate the report without re-estimating PRs. Multiple GitHub identities can map to the same gateway email without duplicating spend. PR effort is attributed to the PR author, not split among reviewers and co-authors.
+In **People**, click **Match email** to connect a repository username or display name to a gateway email. Manual overrides take priority and immediately recalculate the report without re-estimating PRs. Multiple identities can map to the same gateway email without duplicating spend. PR effort is attributed to the PR author, not split among reviewers and co-authors.
 
 ### Estimation coverage and caching
 

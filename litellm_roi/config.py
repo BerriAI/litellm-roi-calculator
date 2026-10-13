@@ -12,7 +12,7 @@ DEFAULT_PROMPT = (
     "Estimate how many hours it would take an engineer to complete the work in this pull request without AI assistance. "
     "Explain your estimate briefly."
 )
-SECRET_FIELDS = ("admin_key", "estimator_key", "github_token")
+SECRET_FIELDS = ("admin_key", "estimator_key", "github_token", "azure_devops_pat")
 
 
 class CredentialDestinationError(ValueError):
@@ -30,15 +30,26 @@ class Settings(BaseModel):
     gateway_url: str = ""
     admin_key: str = ""
     estimator_key: str = ""
+    git_provider: Literal["github", "azure_devops"] = "github"
     github_token: str = ""
     github_connection: Literal["app", "token"] = "token"
     github_api_url: str = "https://api.github.com"
+    azure_devops_org: str = ""
+    azure_devops_pat: str = ""
     repos: list[str] = Field(default_factory=list)
     estimator_model: str = ""
     estimator_prompt: str = DEFAULT_PROMPT
     identity_map: dict[str, str] = Field(default_factory=dict)
     backfill_days: int = Field(default=7, ge=1, le=3650)
     update_interval_minutes: int = Field(default=1440, ge=0, le=43200)
+
+    @field_validator("azure_devops_org")
+    @classmethod
+    def valid_azure_org(cls, value: str) -> str:
+        value = value.strip()
+        if value and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]*", value):
+            raise ValueError("Use only the Azure DevOps organization name (letters, numbers, and hyphens).")
+        return value
 
     @field_validator("update_interval_minutes")
     @classmethod
@@ -69,14 +80,25 @@ class Settings(BaseModel):
             value = value.strip()
             if "://" in value:
                 parsed = urlsplit(value)
-                api_host = urlsplit(info.data.get("github_api_url", "https://api.github.com")).hostname or ""
-                web_host = "github.com" if api_host == "api.github.com" else api_host.removeprefix("api.")
-                if parsed.scheme not in ("http", "https") or parsed.hostname != web_host or parsed.username or parsed.password or parsed.query or parsed.fragment:
-                    raise ValueError("Repository URLs must belong to your configured GitHub server.")
-                value = parsed.path.strip("/")
+                if info.data.get("git_provider") == "azure_devops":
+                    # https://dev.azure.com/{org}/{project}/_git/{repo}
+                    parts = [part for part in parsed.path.strip("/").split("/") if part]
+                    if (parsed.scheme not in ("http", "https") or parsed.hostname != "dev.azure.com"
+                            or len(parts) < 4 or parts[2] != "_git" or parsed.username or parsed.password or parsed.query or parsed.fragment):
+                        raise ValueError("Azure DevOps repository URLs must look like https://dev.azure.com/organization/project/_git/repo.")
+                    value = "/".join([parts[1], "/".join(parts[3:])])
+                else:
+                    api_host = urlsplit(info.data.get("github_api_url", "https://api.github.com")).hostname or ""
+                    web_host = "github.com" if api_host == "api.github.com" else api_host.removeprefix("api.")
+                    if parsed.scheme not in ("http", "https") or parsed.hostname != web_host or parsed.username or parsed.password or parsed.query or parsed.fragment:
+                        raise ValueError("Repository URLs must belong to your configured GitHub server.")
+                    value = parsed.path.strip("/")
             value = value.rstrip("/").removesuffix(".git")
-            if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", value):
-                raise ValueError("Repositories must be owner/repo or a GitHub repository URL.")
+            pattern = r"[^/]+/[^/]+" if info.data.get("git_provider") == "azure_devops" else r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+"
+            if not re.fullmatch(pattern, value.strip()):
+                raise ValueError("Repositories must be project/repo or a repository URL." if info.data.get("git_provider") == "azure_devops"
+                    else "Repositories must be owner/repo or a GitHub repository URL.")
+            value = value.strip()
             if value.casefold() not in seen:
                 repos.append(value)
                 seen.add(value.casefold())
@@ -87,8 +109,8 @@ class Settings(BaseModel):
     def valid_identities(cls, values: dict[str, str]) -> dict[str, str]:
         result = {}
         for login, address in values.items():
-            if not re.fullmatch(r"[A-Za-z0-9_\[\]-]+", login.strip()) or not email(address):
-                raise ValueError("Each identity needs a GitHub username and a valid gateway email.")
+            if not re.fullmatch(r"[A-Za-z0-9_.\[\]@-]+( [A-Za-z0-9_.\[\]@-]+)*", login.strip()) or not email(address):
+                raise ValueError("Each identity needs a valid source username and a gateway email.")
             result[login.strip().casefold()] = email(address)
         return result
 
@@ -98,6 +120,12 @@ class Settings(BaseModel):
         if not value.strip() or len(value) > 20000:
             raise ValueError("The estimator prompt must contain between 1 and 20,000 characters.")
         return value.strip()
+
+    @property
+    def cache_source(self) -> str:
+        if self.git_provider == "azure_devops":
+            return f"https://dev.azure.com/{self.azure_devops_org}"
+        return self.github_api_url
 
     def public(self) -> dict:
         values = self.model_dump(exclude=set(SECRET_FIELDS))
@@ -115,6 +143,9 @@ ENV_FIELDS = {
     "estimator_model": "LITELLM_ESTIMATOR_MODEL",
     "github_token": "GITHUB_TOKEN",
     "github_api_url": "GITHUB_API_URL",
+    "git_provider": "GIT_PROVIDER",
+    "azure_devops_org": "AZURE_DEVOPS_ORG",
+    "azure_devops_pat": "AZURE_DEVOPS_PAT",
 }
 
 
@@ -133,6 +164,8 @@ def environment_fields() -> list[str]:
         fields.add("gateway_url")
     if "github_token" in fields:
         fields.add("github_api_url")
+    if "azure_devops_pat" in fields:
+        fields.add("azure_devops_org")
     return sorted(fields)
 
 
@@ -157,6 +190,8 @@ class ConfigStore:
             raise CredentialDestinationError("The gateway URL is locked while a gateway key is supplied by the server environment. Change the URL on the server.")
         if "github_token" in managed and candidate.github_api_url != data["github_api_url"]:
             raise CredentialDestinationError("The GitHub API URL is locked while a GitHub token is supplied by the server environment. Change the URL on the server.")
+        if "azure_devops_pat" in managed and candidate.azure_devops_org != data["azure_devops_org"]:
+            raise CredentialDestinationError("The Azure DevOps organization is locked while a PAT is supplied by the server environment. Change it on the server.")
         update = dict(update)
         for name in SECRET_FIELDS:
             if update.get(name) == "":
@@ -166,6 +201,8 @@ class ConfigStore:
             data["estimator_key"] = ""
         if update.get("github_api_url", data["github_api_url"]).rstrip("/") != data["github_api_url"]:
             data["github_token"] = ""
+        if update.get("azure_devops_org", data["azure_devops_org"]) != data["azure_devops_org"]:
+            data["azure_devops_pat"] = ""
         data.update(update)
         settings = Settings(**data)
         stored = settings.model_dump()

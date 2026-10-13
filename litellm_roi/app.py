@@ -14,7 +14,8 @@ from pydantic import ValidationError
 
 from .analytics import summarize
 from .config import DEFAULT_PROMPT, ConfigStore, CredentialDestinationError, Settings, environment_fields
-from .connectors import Gateway, GitHub, SourceError, request
+from .connectors import Gateway, SourceError
+from .git_provider import git_provider_from_settings
 from .github_app import GitHubApp
 from .storage import Store
 from .sync import IDLE_STATE, SyncManager, demo_report, utcnow
@@ -32,8 +33,9 @@ def create_app(data_dir: Path | None = None, *, demo_only: bool = False) -> Fast
     def origin(req):
         return public_url or str(req.base_url).rstrip("/")
 
-    def make_github(settings):
-        return GitHub(settings, token_provider=github_app.token_for_repo) if settings.github_connection == "app" else GitHub(settings)
+    def make_git_provider(settings):
+        token_provider = github_app.token_for_repo if settings.git_provider == "github" and settings.github_connection == "app" else None
+        return git_provider_from_settings(settings, token_provider=token_provider)
 
     # A demo process never opens a real workspace, even if configured via environment.
     config = store = manager = github_app = None
@@ -41,7 +43,7 @@ def create_app(data_dir: Path | None = None, *, demo_only: bool = False) -> Fast
         root = data_dir or Path(os.environ.get("ROI_DATA_DIR", "~/.litellm-roi")).expanduser()
         config, store = ConfigStore(root), Store(root)
         github_app = GitHubApp(root)
-        manager = SyncManager(store, make_github)
+        manager = SyncManager(store, make_git_provider)
 
     async def scheduler():
         while True:
@@ -150,14 +152,13 @@ def create_app(data_dir: Path | None = None, *, demo_only: bool = False) -> Fast
         if scope in ("all", "github"):
             if not settings.repos:
                 raise SourceError("Add at least one repository.")
-            github = make_github(settings)
+            provider = make_git_provider(settings)
             try:
                 for repo in settings.repos:
-                    await request(github.client, "GET", f"repos/{repo}")
-                    await request(github.client, "GET", f"repos/{repo}/pulls", params={"per_page": 1, "state": "closed"})
+                    await provider.probe(repo)
                 repo_count = len(settings.repos)
             finally:
-                await github.close()
+                await provider.close()
         return {"ok": True, "models": models, "repos": repo_count}
 
     @app.get("/api/models")
@@ -178,11 +179,26 @@ def create_app(data_dir: Path | None = None, *, demo_only: bool = False) -> Fast
             return await github_app.repositories(installation, page)
         if not org and not settings.github_token:
             raise SourceError("Add a GitHub token to browse your repositories, or enter an organization to browse public repositories.")
-        github = GitHub(settings)
+        github = git_provider_from_settings(settings)
         try:
             return await github.repositories(org, page)
         finally:
             await github.close()
+
+    @app.get("/api/azure/repos")
+    async def azure_repositories(project: str = Query(default="", pattern=r"^[A-Za-z0-9_. -]*$", max_length=100), page: int = Query(default=1, ge=1, le=10000)):
+        settings = config.load()
+        if settings.git_provider != "azure_devops":
+            raise SourceError("Switch the git provider setting to Azure DevOps first.")
+        if not settings.azure_devops_org:
+            raise SourceError("Save your Azure DevOps organization first.")
+        if not settings.azure_devops_pat:
+            raise SourceError("Add an Azure DevOps personal access token to browse repositories.")
+        provider = git_provider_from_settings(settings)
+        try:
+            return await provider.repositories(project, page)
+        finally:
+            await provider.close()
 
     @app.post("/api/sync")
     async def sync():
