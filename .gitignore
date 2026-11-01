@@ -17,3 +17,4 @@ github-app.json
 github-session.json
 github-oauth.json
 *.pem
+.coverage

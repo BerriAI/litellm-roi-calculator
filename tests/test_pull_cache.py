@@ -15,7 +15,7 @@ from litellm_roi.sync import SyncManager
 
 
 def listing(pr):
-    return {**pr, "head": {"sha": pr["head_sha"]}, "user": {"login": pr["login"]}, "updated_at": pr["merged_at"]}
+    return {**pr, "updated_at": pr["merged_at"]}
 
 
 def result():

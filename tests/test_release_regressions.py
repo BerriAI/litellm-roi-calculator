@@ -79,7 +79,7 @@ def test_cli_demo_never_opens_workspace_or_calls_connected_services(tmp_path, mo
     def forbidden(*_args, **_kwargs):
         pytest.fail("Demo must not construct a config store, report store, scheduler, or connector.")
 
-    for name in ("ConfigStore", "Store", "SyncManager", "Gateway", "GitHub"):
+    for name in ("ConfigStore", "Store", "SyncManager", "Gateway", "git_provider_from_settings"):
         monkeypatch.setattr(app_module, name, forbidden)
     monkeypatch.setattr(cli, "load_dotenv", lambda: False)
     monkeypatch.setattr(sys, "argv", ["litellm-roi", "--demo", "--no-browser", "--data-dir", str(tmp_path)])

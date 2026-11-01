@@ -180,10 +180,17 @@ class GitHub:
             for pr in page:
                 merged = pr.get("merged_at")
                 if merged and start.isoformat() <= merged[:10] <= end.isoformat():
-                    pulls.append(pr)
+                    pulls.append({"number": pr["number"], "title": pr.get("title") or "", "body": pr.get("body") or "",
+                        "url": pr.get("html_url", ""), "login": (pr.get("user") or {}).get("login", ""),
+                        "merged_at": merged, "updated_at": pr.get("updated_at", ""),
+                        "head_sha": (pr.get("head") or {}).get("sha", "")})
             if page and page[-1]["updated_at"][:10] < start.isoformat():
                 break
         return pulls
+
+    async def probe(self, repo: str) -> None:
+        await request(self.client, "GET", f"repos/{repo}")
+        await request(self.client, "GET", f"repos/{repo}/pulls", params={"per_page": 1, "state": "closed"})
 
     async def evidence(self, repo: str, pr: dict) -> dict:
         number = pr["number"]

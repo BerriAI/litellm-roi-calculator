@@ -10,6 +10,7 @@ import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { SettingsForm } from "./SettingsForm";
 import { TextPicker } from "./TextPicker";
+import { gitTerms } from "./configuration";
 import { Onboarding } from "./Onboarding";
 import { SyncProgress } from "./SyncProgress";
 import { api, money, number, date, safeURL, errorMessage, type AppState, type Pull, type Report } from "./api";
@@ -118,7 +119,7 @@ export function App() {
       <div className="page-heading">
         <PageHeader title={page === "settings" && !state.settings.ready ? "Setup" : activeNav.label}
           icon={<activeNav.icon />}
-          subtitle={page === "settings" ? "Connect a LiteLLM gateway and GitHub repositories." : report ? `${date(report.start)} – ${date(report.end)}` : "Gateway spend and estimated engineering effort."}
+          subtitle={page === "settings" ? `Connect a LiteLLM gateway and ${gitTerms(state.settings.git_provider).host} repositories.` : report ? `${date(report.start)} – ${date(report.end)}` : "Gateway spend and estimated engineering effort."}
         />
         <div className="page-actions">
           {page === "settings" ? null : demo ?
@@ -130,12 +131,12 @@ export function App() {
         </div>
       </div>
       {(error || connectionError || state.status.error) && <div className="notice text-destructive" role="alert">{error || connectionError || state.status.error}</div>}
-      {state.status.running && <div className="notice"><div className="min-w-0 flex-1"><SyncProgress status={state.status} /></div>
+      {state.status.running && <div className="notice"><div className="min-w-0 flex-1"><SyncProgress status={state.status} provider={state.settings.git_provider} /></div>
         <Button variant="outline" size="sm" onClick={() => void syncAction(true)} disabled={busy}>Cancel sync</Button></div>}
       {page === "settings" ? <SettingsForm state={state} refresh={refresh} onSync={startSync} /> : !report ?
-        <div className="rounded-lg border p-8 text-sm muted">{state.status.running ? "Your report will appear when the sync finishes." : "No report yet. Sync to import spend and estimate merged PRs."}</div> :
-        page === "overview" ? <Overview report={report} onSelect={selectPR} onPeople={() => navigate("people")} /> :
-        <People report={report} onMatch={(login, email) => { setMatchError(""); setMatching({ login, email }); }} />}
+        <div className="rounded-lg border p-8 text-sm muted">{state.status.running ? "Your report will appear when the sync finishes." : `No report yet. Sync to import spend and estimate merged ${gitTerms(state.settings.git_provider).prsLower}.`}</div> :
+        page === "overview" ? <Overview report={report} onSelect={selectPR} onPeople={() => navigate("people")} provider={state.settings.git_provider} /> :
+        <People report={report} onMatch={(login, email) => { setMatchError(""); setMatching({ login, email }); }} provider={state.settings.git_provider} />}
       {report && page !== "settings" && !demo && <p className="text-sm muted">
         Last synced {new Date(report.synced_at).toLocaleString()}
         {` · ${state.settings.update_interval_minutes ? `Updates every ${number(state.settings.update_interval_minutes / 60)} ${state.settings.update_interval_minutes === 60 ? "hour" : "hours"}` : "Manual updates"}`}
@@ -165,7 +166,7 @@ export function App() {
             <dt className="muted">Email match</dt><dd className="break-all">{selectedPR.email || "Not matched"}</dd>
           </dl>
           {report?.estimator_prompt && <details className="details"><summary>Estimator prompt</summary><p className="whitespace-pre-wrap">{report.estimator_prompt}</p></details>}
-          {selectedPR.url && <DialogFooter><Button variant="outline" render={<a href={safeURL(selectedPR.url)} target="_blank" rel="noopener noreferrer" />} nativeButton={false}>View on GitHub<ExternalLink /></Button></DialogFooter>}
+          {selectedPR.url && <DialogFooter><Button variant="outline" render={<a href={safeURL(selectedPR.url)} target="_blank" rel="noopener noreferrer" />} nativeButton={false}>View on {gitTerms(state.settings.git_provider).host}<ExternalLink /></Button></DialogFooter>}
         </>}
       </DialogContent>
     </Dialog>
@@ -188,7 +189,8 @@ export function App() {
   </div>;
 }
 
-function Overview({ report, onSelect, onPeople }: { report: Report; onSelect: (pr: Pull) => void; onPeople: () => void }) {
+function Overview({ report, onSelect, onPeople, provider }: { report: Report; onSelect: (pr: Pull) => void; onPeople: () => void; provider: string }) {
+  const terms = gitTerms(provider);
   const [query, setQuery] = useState("");
   const [limit, setLimit] = useState(5);
   const m = report.metrics;
@@ -220,31 +222,32 @@ function Overview({ report, onSelect, onPeople }: { report: Report; onSelect: (p
     </section>
     {report.warnings.map((warning, i) => <p key={i} role="alert" className="text-sm text-warning">{warning}</p>)}
     <section className="pull-section">
-      <div className="flex flex-wrap items-center justify-between gap-4"><div><h2 className="font-semibold text-lg">Pull requests</h2><p className="mt-1 text-sm muted">{m.merged_prs} merged · {m.estimated_prs} estimated{m.pending_prs > 0 && ` · ${m.pending_prs} need attention`}</p></div>
-        <Input type="search" aria-label="Search pull requests" placeholder="Search pull requests" className="w-full sm:w-56" value={query} onChange={e => { setQuery(e.target.value); setLimit(e.target.value ? 25 : 5); }} /></div>
+      <div className="flex flex-wrap items-center justify-between gap-4"><div><h2 className="font-semibold text-lg">{terms.prs}</h2><p className="mt-1 text-sm muted">{m.merged_prs} merged · {m.estimated_prs} estimated{m.pending_prs > 0 && ` · ${m.pending_prs} need attention`}</p></div>
+        <Input type="search" aria-label={`Search ${terms.prsLower}`} placeholder={`Search ${terms.prsLower}`} className="w-full sm:w-56" value={query} onChange={e => { setQuery(e.target.value); setLimit(e.target.value ? 25 : 5); }} /></div>
       <div className="data-table pull-table"><Table>
-        <TableHeader><TableRow><TableHead>Pull request</TableHead><TableHead className="text-right">Estimated hours</TableHead></TableRow></TableHeader>
+        <TableHeader><TableRow><TableHead>{terms.pr}</TableHead><TableHead className="text-right">Estimated hours</TableHead></TableRow></TableHeader>
         <TableBody>{filtered.slice(0, limit).map(pr => <TableRow key={`${pr.repo}#${pr.number}`}>
           <TableCell className="whitespace-normal"><button onClick={() => onSelect(pr)} className="pr-link text-left hover:underline focus-visible:outline-2 focus-visible:outline-offset-4 rounded-sm">
             <span className="pr-title">{pr.title}</span><span className="pr-meta">{pr.repo} #{pr.number} · {pr.login}</span>
           </button></TableCell>
           <TableCell className="text-right text-base tabular-nums">{pr.estimate.status === "estimated" ? <>{number(pr.estimate.hours)} <span className="text-sm muted">hrs</span></> :
             <Button variant="link" size="xs" className="text-warning px-0" onClick={() => onSelect(pr)}>{pr.estimate.status === "error" ? "Estimate failed" : "Needs review"}</Button>}</TableCell>
-        </TableRow>)}{filtered.length === 0 && <TableRow><TableCell colSpan={2} className="text-center muted">{query ? "No matching pull requests." : "No merged pull requests in this period."}</TableCell></TableRow>}</TableBody>
+        </TableRow>)}{filtered.length === 0 && <TableRow><TableCell colSpan={2} className="text-center muted">{query ? `No matching ${terms.prsLower}.` : `No merged ${terms.prsLower} in this period.`}</TableCell></TableRow>}</TableBody>
       </Table></div>
       <div className="flex justify-between items-center gap-4 text-sm muted"><span>Showing {Math.min(limit, filtered.length)} of {filtered.length}</span>
-        {filtered.length > limit ? <Button variant="outline" onClick={() => setLimit(n => n + 25)}>{filtered.length <= limit + 25 ? `View all ${filtered.length} pull requests` : "View more pull requests"}</Button> : limit > 5 && !query && <Button variant="ghost" onClick={() => setLimit(5)}>Show fewer</Button>}</div>
+        {filtered.length > limit ? <Button variant="outline" onClick={() => setLimit(n => n + 25)}>{filtered.length <= limit + 25 ? `View all ${filtered.length} ${terms.prsLower}` : `View more ${terms.prsLower}`}</Button> : limit > 5 && !query && <Button variant="ghost" onClick={() => setLimit(5)}>Show fewer</Button>}</div>
     </section>
   </>;
 }
 
-function People({ report, onMatch }: { report: Report; onMatch: (login: string, email: string) => void }) {
+function People({ report, onMatch, provider }: { report: Report; onMatch: (login: string, email: string) => void; provider: string }) {
+  const terms = gitTerms(provider);
   return <>
     <p className="text-sm leading-relaxed muted">{effortNote(report.effort_basis)} Spend includes each person's full gateway usage for this period.</p>
     <div className="data-table"><Table>
       <TableHeader><TableRow><TableHead>Person</TableHead><TableHead className="text-right">Gateway spend</TableHead><TableHead className="text-right">Estimated hours</TableHead><TableHead className="text-right">Spend / est. hour</TableHead></TableRow></TableHeader>
       <TableBody>{report.people.map(person => <TableRow key={person.id}>
-        <TableCell><div className="space-y-1">{person.logins.length ? person.logins.map(login => <div key={login}><button className="font-medium hover:underline focus-visible:outline-2 rounded-sm" onClick={() => onMatch(login, person.email)}>{login}</button></div>) : "No GitHub match"}</div>
+        <TableCell><div className="space-y-1">{person.logins.length ? person.logins.map(login => <div key={login}><button className="font-medium hover:underline focus-visible:outline-2 rounded-sm" onClick={() => onMatch(login, person.email)}>{login}</button></div>) : terms.noMatch}</div>
           <div className="mt-1 text-[13px] muted">{person.email || (person.logins.length ? <Button variant="link" size="sm" className="h-auto p-0" onClick={() => onMatch(person.logins[0], "")}>Match email</Button> : "Unassigned usage")}</div>
           {person.logins.length > 0 && !person.eligible && <p className="mt-1 text-[13px] muted">Excluded from ratio</p>}</TableCell>
         <TableCell className="text-right tabular-nums">{money(person.spend)}</TableCell>
@@ -252,6 +255,6 @@ function People({ report, onMatch }: { report: Report; onMatch: (login: string, 
         <TableCell className="text-right tabular-nums">{money(person.cost_per_hour)}</TableCell>
       </TableRow>)}{report.people.length === 0 && <TableRow><TableCell colSpan={4} className="text-center muted">No people in this period.</TableCell></TableRow>}</TableBody>
     </Table></div>
-    <details className="details"><summary>How email matching works</summary><p>Matches use the author's public GitHub email or commit emails associated with their GitHub account. Email matching ignores case. Private, noreply, and ambiguous emails stay unmatched. Click a GitHub username to edit its match. Manual matches take priority.</p><p className="mt-2">People with no spend record or incomplete PR estimates are excluded from the ratio. Missing spend displays as “—”.</p></details>
+    <details className="details"><summary>How email matching works</summary><p>{terms.matchHelp}</p><p className="mt-2">People with no spend record or incomplete PR estimates are excluded from the ratio. Missing spend displays as “—”.</p></details>
   </>;
 }

@@ -203,7 +203,7 @@ async def test_full_sync_caches_estimates_and_preserves_previous_report_on_sourc
 
     transport = httpx.MockTransport(handler)
     monkeypatch.setattr(sync_module, "Gateway", lambda cfg: Gateway(cfg, transport))
-    monkeypatch.setattr(sync_module, "GitHub", lambda cfg: GitHub(cfg, transport))
+    monkeypatch.setattr(sync_module, "git_provider_from_settings", lambda cfg, **kw: GitHub(cfg, transport))
     monkeypatch.setattr(sync_module, "Estimator", lambda cfg, db: Estimator(cfg, db, transport))
     manager = SyncManager(store)
     manager.start(settings)
@@ -275,7 +275,9 @@ async def test_scheduler_catches_up_on_startup_and_can_switch_to_manual(settings
 
     transport = httpx.MockTransport(handler)
     monkeypatch.setattr(sync_module, "Gateway", lambda cfg: Gateway(cfg, transport))
-    monkeypatch.setattr(sync_module, "GitHub", lambda cfg: GitHub(cfg, transport))
+    monkeypatch.setattr(sync_module, "git_provider_from_settings", lambda cfg, **kw: GitHub(cfg, transport))
+    from litellm_roi import app as app_module
+    monkeypatch.setattr(app_module, "git_provider_from_settings", lambda cfg, **kw: GitHub(cfg, transport))
     app = create_app(tmp_path)
     async with app.router.lifespan_context(app):
         async with asyncio.timeout(10):
@@ -322,7 +324,7 @@ def test_scoped_connection_checks_and_repository_discovery(tmp_path, monkeypatch
 
     transport = httpx.MockTransport(handler)
     monkeypatch.setattr(app_module, "Gateway", lambda cfg: Gateway(cfg, transport))
-    monkeypatch.setattr(app_module, "GitHub", lambda cfg: GitHub(cfg, transport))
+    monkeypatch.setattr(app_module, "git_provider_from_settings", lambda cfg, **kw: GitHub(cfg, transport))
     with TestClient(create_app(tmp_path), base_url="http://localhost") as client:
         assert client.get("/api/github/repos").status_code == 400
         client.put("/api/settings", json={"github_api_url": "https://github.company.example/api/v3", "github_token": "test-only", "repos": ["company/internal"]})

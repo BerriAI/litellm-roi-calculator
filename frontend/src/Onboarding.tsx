@@ -5,14 +5,17 @@ import { Input } from "@/components/ui/input";
 import { TextPicker } from "./TextPicker";
 import { Textarea } from "@/components/ui/textarea";
 import { api, errorMessage, type AppState, type Settings } from "./api";
-import { Field, formValues, settingsUpdate, type FormValues } from "./configuration";
-import { GitHubConnection, githubConnectionFields } from "./GitHubConnection";
+import { Field, formValues, gitTerms, settingsUpdate, type FormValues } from "./configuration";
+import { GitConnection } from "./GitConnection";
+import { githubConnectionFields } from "./GitHubConnection";
+import { azureDevOpsConnectionFields } from "./AzureDevOpsConnection";
+import { gitLabConnectionFields } from "./GitLabConnection";
 import { SyncProgress } from "./SyncProgress";
 
 const steps = ["Gateway", "Repositories", "Estimator & sync"];
 const stepFields = [
   ["gateway_url", "admin_key"],
-  [...githubConnectionFields, "repos"],
+  [...githubConnectionFields, ...azureDevOpsConnectionFields, ...gitLabConnectionFields, "repos"],
   ["estimator_model", "estimator_prompt", "estimator_key", "backfill_days", "update_interval_hours"],
 ];
 
@@ -94,11 +97,11 @@ export function Onboarding({ state, refresh, connectionError }: {
       {progress ? <section className="setup-panel">
         <h1 ref={heading} tabIndex={-1}>{state.status.running ? "Preparing your dashboard" : state.status.phase === "cancelled" ? "Backfill cancelled" : state.status.error ? "Backfill needs attention" : "Starting backfill"}</h1>
         <p className="onboarding-description">{state.status.running ? "Importing the last" : "History window:"} {state.settings.backfill_days} days from your gateway and {state.settings.repos.length} {state.settings.repos.length === 1 ? "repository" : "repositories"}.</p>
-        <ol className="backfill-stages" aria-label="Backfill progress">{["Import gateway spend", "Import merged pull requests", "Estimate engineering hours"].map((label, i) => <li key={label} className={activePhase === i ? "active" : ""}>
+        <ol className="backfill-stages" aria-label="Backfill progress">{["Import gateway spend", `Import merged ${gitTerms(state.settings.git_provider).prsLower}`, "Estimate engineering hours"].map((label, i) => <li key={label} className={activePhase === i ? "active" : ""}>
           {activePhase > i ? <Check aria-label="Complete" /> : state.status.running && activePhase === i ? <Loader2 className="animate-spin" aria-label="In progress" /> : <Circle aria-label="Pending" />}
           <span>{label}</span>
         </li>)}</ol>
-        <div className="backfill-detail"><SyncProgress status={state.status} /></div>
+        <div className="backfill-detail"><SyncProgress status={state.status} provider={state.settings.git_provider} /></div>
         {state.status.error && <p role="alert" className="text-sm text-destructive mt-5">{state.status.error}</p>}
         <div className="onboarding-actions">
           {state.status.running ? <Button variant="outline" disabled={busy} onClick={() => void syncAction(true)}>Cancel backfill</Button> : <>
@@ -119,8 +122,8 @@ export function Onboarding({ state, refresh, connectionError }: {
               <Field label="Admin key" locked={locked("admin_key")} help="Use an admin or read-only admin key with access to user spend.">
                 {input("admin_key", "password", saved.has_admin_key ? "Saved. Leave blank to keep." : "sk-…", !saved.has_admin_key)}
               </Field>
-            </> : step === 1 ? <GitHubConnection values={values} saved={saved} locked={locked} update={update}
-              saveConnection={() => save(githubConnectionFields)} onBusy={setBusy} /> : <>
+            </> : step === 1 ? <GitConnection values={values} saved={saved} locked={locked} update={update}
+              save={save} onBusy={setBusy} /> : <>
               <Field label="Estimator model" locked={locked("estimator_model")}>
                 <TextPicker items={models} name="estimator_model" required value={values.estimator_model} disabled={locked("estimator_model")}
                   onChange={value => update("estimator_model", value)} placeholder="Choose or enter a model from your gateway" />
